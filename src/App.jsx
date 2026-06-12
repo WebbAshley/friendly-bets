@@ -4,7 +4,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, updateDoc, deleteDoc, addDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, updateDoc, deleteDoc, addDoc, getDocs } from "firebase/firestore";
 
 // ── Firebase Init ─────────────────────────────────────────
 const firebaseConfig = {
@@ -76,25 +76,38 @@ function LoginPage({ showToast }) {
   const [mode, setMode] = useState("login");
   const [lf, setLf] = useState({ username: "", password: "" });
   const [sf, setSf] = useState({ username: "", password: "", venmo: "", cashapp: "", zelle: "" });
+  const [loading, setLoading] = useState(false);
 
   const login = async () => {
-    // We store email as username@friendlybets.app internally
+    if (loading) return;
+    setLoading(true);
     const email = `${lf.username.toLowerCase()}@friendlybets.app`;
     try {
       await signInWithEmailAndPassword(auth, email, lf.password);
       showToast(`Welcome back, ${lf.username}! ⚔️`);
     } catch (e) {
       showToast("Invalid username or password", "error");
+    } finally {
+      setLoading(false);
     }
   };
 
   const signup = async () => {
+    if (loading) return;
     if (!sf.username) return showToast("Username required", "error");
     if (!sf.password || sf.password.length < 6) return showToast("Password must be 6+ characters", "error");
+    setLoading(true);
     const email = `${sf.username.toLowerCase()}@friendlybets.app`;
     try {
+      // Check if username already exists first
+      const usersSnap = await getDocs(collection(db, "users"));
+      const taken = usersSnap.docs.some(d => d.data().username.toLowerCase() === sf.username.toLowerCase());
+      if (taken) {
+        showToast("Username already taken", "error");
+        setLoading(false);
+        return;
+      }
       const cred = await createUserWithEmailAndPassword(auth, email, sf.password);
-      // Save profile to Firestore
       await setDoc(doc(db, "users", cred.user.uid), {
         id: cred.user.uid,
         username: sf.username,
@@ -110,6 +123,8 @@ function LoginPage({ showToast }) {
     } catch (e) {
       if (e.code === "auth/email-already-in-use") showToast("Username already taken", "error");
       else showToast("Signup failed: " + e.message, "error");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -133,7 +148,9 @@ function LoginPage({ showToast }) {
             <>
               <Field label="Username" placeholder="Your username" value={lf.username} onChange={e => setLf(f => ({ ...f, username: e.target.value }))} />
               <Field label="Password" type="password" placeholder="••••••••" value={lf.password} onChange={e => setLf(f => ({ ...f, password: e.target.value }))} />
-              <Btn onClick={login} style={{ width: "100%", marginTop: 8 }}>Wreck 'Em In 🔫</Btn>
+              <Btn onClick={login} style={{ width: "100%", marginTop: 8, opacity: loading ? 0.6 : 1 }}>
+                {loading ? "Logging in..." : "Wreck 'Em In 🔫"}
+              </Btn>
             </>
           ) : (
             <>
@@ -142,7 +159,9 @@ function LoginPage({ showToast }) {
               <Field label="Venmo (optional)" placeholder="@username" value={sf.venmo} onChange={e => setSf(f => ({ ...f, venmo: e.target.value }))} />
               <Field label="CashApp (optional)" placeholder="$username" value={sf.cashapp} onChange={e => setSf(f => ({ ...f, cashapp: e.target.value }))} />
               <Field label="Zelle (optional)" placeholder="phone or email" value={sf.zelle} onChange={e => setSf(f => ({ ...f, zelle: e.target.value }))} />
-              <Btn onClick={signup} style={{ width: "100%", marginTop: 8 }}>Create Account 🏴</Btn>
+              <Btn onClick={signup} style={{ width: "100%", marginTop: 8, opacity: loading ? 0.6 : 1 }}>
+                {loading ? "Creating account..." : "Create Account 🏴"}
+              </Btn>
             </>
           )}
         </div>
@@ -150,7 +169,6 @@ function LoginPage({ showToast }) {
     </div>
   );
 }
-
 // ── Create Bet Modal ──────────────────────────────────────
 function CreateBetModal({ users, currentUser, onClose, showToast }) {
   const [form, setForm] = useState({ type: "1v1", opponentId: "", description: "", stakes: "", amount: "", deadline: "", winType: "single", inviteIds: [] });
