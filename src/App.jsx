@@ -27,15 +27,51 @@ const TTU_DARK = "#1a1a1a";
 const TTU_WHITE = "#FFFFFF";
 const TTU_GRAY = "#2a2a2a";
 
+// ── Avatar System ─────────────────────────────────────────
+const AVATARS = [
+  { id: "skull",  emoji: "💀", bg: "#1a0505" },
+  { id: "fire",   emoji: "🔥", bg: "#1a0800" },
+  { id: "devil",  emoji: "😈", bg: "#2a0030" },
+  { id: "clown",  emoji: "🤡", bg: "#0a1a1a" },
+  { id: "bones",  emoji: "☠️", bg: "#0a0a20" },
+  { id: "dagger", emoji: "🗡️", bg: "#001520" },
+  { id: "steam",  emoji: "😤", bg: "#201a00" },
+  { id: "curse",  emoji: "🤬", bg: "#200800" },
+  { id: "snake",  emoji: "🐍", bg: "#001a08" },
+  { id: "adevil", emoji: "👿", bg: "#300010" },
+  { id: "bat",    emoji: "🦇", bg: "#08001a" },
+  { id: "gun",    emoji: "🔫", bg: "#001a1a" },
+];
+
 // ── Shared UI ─────────────────────────────────────────────
 const Badge = ({ label, color, small }) => (
   <span style={{ background: color, color: "#fff", borderRadius: 4, padding: small ? "2px 6px" : "3px 10px", fontSize: small ? 11 : 12, fontWeight: 700, letterSpacing: 1 }}>{label}</span>
 );
 
-const Avatar = ({ name, size = 38 }) => {
+const Avatar = ({ name, avatarId, size = 38 }) => {
+  const av = avatarId && AVATARS.find(a => a.id === avatarId);
+  if (av) return (
+    <div style={{ width: size, height: size, borderRadius: "50%", background: av.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.55, flexShrink: 0, border: "2px solid #444" }}>
+      {av.emoji}
+    </div>
+  );
   const initials = name?.split("_").map(w => w[0]).join("").slice(0, 2).toUpperCase();
   return <div style={{ width: size, height: size, borderRadius: "50%", background: TTU_RED, color: TTU_WHITE, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: size * 0.35, flexShrink: 0 }}>{initials}</div>;
 };
+
+const AvatarPicker = ({ value, onChange }) => (
+  <div style={{ marginBottom: 12 }}>
+    <div style={{ color: "#aaa", fontSize: 12, marginBottom: 8, fontWeight: 600 }}>Choose Avatar</div>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      {AVATARS.map(av => (
+        <div key={av.id} onClick={() => onChange(value === av.id ? "" : av.id)}
+          style={{ width: 44, height: 44, borderRadius: "50%", background: av.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, cursor: "pointer", border: value === av.id ? `2px solid ${TTU_RED}` : "2px solid #444" }}>
+          {av.emoji}
+        </div>
+      ))}
+    </div>
+  </div>
+);
 
 const Card = ({ children, style, onClick }) => (
   <div onClick={onClick} style={{ background: TTU_GRAY, borderRadius: 10, padding: 16, marginBottom: 14, border: "1px solid #333", cursor: onClick ? "pointer" : undefined, ...style }}>{children}</div>
@@ -75,7 +111,7 @@ const Sel = ({ label, value, onChange, children }) => (
 function LoginPage({ showToast }) {
   const [mode, setMode] = useState("login");
   const [lf, setLf] = useState({ username: "", password: "" });
-  const [sf, setSf] = useState({ username: "", password: "", venmo: "", cashapp: "", zelle: "" });
+  const [sf, setSf] = useState({ username: "", password: "", venmo: "", cashapp: "", zelle: "", avatarId: "" });
   const [loading, setLoading] = useState(false);
 
   const login = async () => {
@@ -114,6 +150,7 @@ function LoginPage({ showToast }) {
         venmo: sf.venmo || "",
         cashapp: sf.cashapp || "",
         zelle: sf.zelle || "",
+        avatarId: sf.avatarId || "",
         wins: 0,
         losses: 0,
         dishonorable: false,
@@ -159,6 +196,7 @@ function LoginPage({ showToast }) {
               <Field label="Venmo (optional)" placeholder="@username" value={sf.venmo} onChange={e => setSf(f => ({ ...f, venmo: e.target.value }))} />
               <Field label="CashApp (optional)" placeholder="$username" value={sf.cashapp} onChange={e => setSf(f => ({ ...f, cashapp: e.target.value }))} />
               <Field label="Zelle (optional)" placeholder="phone or email" value={sf.zelle} onChange={e => setSf(f => ({ ...f, zelle: e.target.value }))} />
+              <AvatarPicker value={sf.avatarId} onChange={id => setSf(f => ({ ...f, avatarId: id }))} />
               <Btn onClick={signup} style={{ width: "100%", marginTop: 8, opacity: loading ? 0.6 : 1 }}>
                 {loading ? "Creating account..." : "Create Account 🏴"}
               </Btn>
@@ -251,7 +289,7 @@ function CreateBetModal({ users, currentUser, onClose, showToast }) {
 // ── Profile Modal ─────────────────────────────────────────
 function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ venmo: user.venmo || "", cashapp: user.cashapp || "", zelle: user.zelle || "" });
+  const [form, setForm] = useState({ venmo: user.venmo || "", cashapp: user.cashapp || "", zelle: user.zelle || "", avatarId: user.avatarId || "" });
   const isSelf = user.id === currentUser.id;
 
   const save = async () => {
@@ -274,7 +312,7 @@ function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
       <div style={{ background: TTU_GRAY, borderRadius: 12, padding: 24, width: "100%", maxWidth: 380, border: `2px solid ${TTU_RED}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <Avatar name={user.username} size={48} />
+            <Avatar name={user.username} avatarId={user.avatarId} size={48} />
             <div>
               <div style={{ color: TTU_WHITE, fontWeight: 800, fontSize: 18 }}>{user.username}</div>
               {user.dishonorable && <Badge label="🏴 DISHONORABLE" color="#8b0000" />}
@@ -292,6 +330,7 @@ function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
         </div>
         {editing ? (
           <>
+            <AvatarPicker value={form.avatarId} onChange={id => setForm(f => ({ ...f, avatarId: id }))} />
             <Field label="Venmo" placeholder="@username" value={form.venmo} onChange={e => setForm(f => ({ ...f, venmo: e.target.value }))} />
             <Field label="CashApp" placeholder="$username" value={form.cashapp} onChange={e => setForm(f => ({ ...f, cashapp: e.target.value }))} />
             <Field label="Zelle" placeholder="phone or email" value={form.zelle} onChange={e => setForm(f => ({ ...f, zelle: e.target.value }))} />
@@ -310,7 +349,7 @@ function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
                 </div>
               ))}
             </div>
-            {isSelf && <Btn variant="outline" onClick={() => setEditing(true)} style={{ width: "100%", marginBottom: 8 }}>Edit Payment Info</Btn>}
+            {isSelf && <Btn variant="outline" onClick={() => setEditing(true)} style={{ width: "100%", marginBottom: 8 }}>Edit Profile</Btn>}
           </>
         )}
         {isSelf && user.dishonorableDebts?.length > 0 && (
@@ -482,7 +521,7 @@ export default function App() {
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {bet.type === "pot" ? <span style={{ fontSize: 20 }}>🪣</span> : <Avatar name={opp?.username} size={32} />}
+            {bet.type === "pot" ? <span style={{ fontSize: 20 }}>🪣</span> : <Avatar name={opp?.username} avatarId={opp?.avatarId} size={32} />}
             <div>
               <div style={{ color: TTU_WHITE, fontWeight: 700, fontSize: 14 }}>
                 {bet.type === "1v1" ? `vs ${opp?.username}${opp?.dishonorable ? " 🏴" : ""}` : bet.description}
@@ -583,7 +622,7 @@ export default function App() {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {pendingActions.length > 0 && <span style={{ background: TTU_RED, color: TTU_WHITE, borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{pendingActions.length}</span>}
-          <div style={{ cursor: "pointer" }} onClick={() => setModal({ type: "profile", user: currentUser })}><Avatar name={currentUser.username} size={34} /></div>
+          <div style={{ cursor: "pointer" }} onClick={() => setModal({ type: "profile", user: currentUser })}><Avatar name={currentUser.username} avatarId={currentUser.avatarId} size={34} /></div>
           <Btn variant="ghost" small onClick={() => signOut(auth)}>Out</Btn>
         </div>
       </div>
@@ -621,7 +660,7 @@ export default function App() {
                 <Card key={u.id} style={{ borderColor: i === 0 ? TTU_RED : "#333" }} onClick={() => setModal({ type: "profile", user: u })}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <span style={{ color: i === 0 ? TTU_RED : "#aaa", fontWeight: 900, fontSize: 20, width: 28 }}>#{i + 1}</span>
-                    <Avatar name={u.username} />
+                    <Avatar name={u.username} avatarId={u.avatarId} />
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ color: TTU_WHITE, fontWeight: 700 }}>{u.username}</span>
@@ -646,7 +685,7 @@ export default function App() {
                 return (
                   <Card key={u.id} onClick={() => setModal({ type: "profile", user: u })}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <Avatar name={u.username} />
+                      <Avatar name={u.username} avatarId={u.avatarId} />
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ color: TTU_WHITE, fontWeight: 700 }}>{u.username}</span>
