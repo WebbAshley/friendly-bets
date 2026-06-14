@@ -1101,7 +1101,8 @@ export default function App() {
   );
 
   const accent = selectedLeague.themeColor || BLUE;
-  const sortedMembers = [...leagueMembers].sort((a, b) => (b.monies ?? 0) - (a.monies ?? 0));
+  const starting = selectedLeague?.startingMonies || 1000;
+  const sortedMembers = [...leagueMembers].sort((a, b) => ((b.monies ?? 0) - starting) - ((a.monies ?? 0) - starting));
   const openBets = bets.filter(b => b.anyAction && b.status === "open");
   const feedBets = [...bets].sort((a, b) => b.createdAt - a.createdAt).filter(b => !(b.anyAction && b.status === "open"));
   const pinnedAnnouncements = announcements.filter(a => a.pinned);
@@ -1215,6 +1216,8 @@ export default function App() {
                 if (!u) return null;
                 const total = (m.wins || 0) + (m.losses || 0);
                 const winPct = total > 0 ? Math.round(m.wins / total * 100) : 0;
+                const profit = (m.monies ?? 0) - (selectedLeague.startingMonies || 1000);
+                const profitColor = profit > 0 ? "#22c55e" : profit < 0 ? "#ff4444" : "#aaa";
                 return (
                   <Card key={m.userId} style={{ borderColor: i === 0 ? accent : "#444" }} onClick={() => setModal({ type: "profile", user: u })}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1226,11 +1229,12 @@ export default function App() {
                           {u.dishonorable && <Badge label="🏴" color="#8b0000" small />}
                           {m.role !== "member" && <Badge label={m.role === "commissioner" ? "COMM" : "CO-COMM"} color={accent} small />}
                         </div>
-                        <div style={{ color: "#aaa", fontSize: 12 }}>{m.wins || 0}W — {m.losses || 0}L · {winPct}% win rate</div>
+                        <div style={{ color: "#aaa", fontSize: 12 }}>{m.wins || 0}W — {m.losses || 0}L · {winPct}% · 💰 {m.monies ?? 0}</div>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <div style={{ color: accent, fontWeight: 900, fontSize: 18 }}>💰 {m.monies ?? 0}</div>
-                        {i === 0 && <div style={{ fontSize: 16 }}>👑</div>}
+                        <div style={{ color: profitColor, fontWeight: 900, fontSize: 18 }}>{profit >= 0 ? "+" : ""}{profit}</div>
+                        <div style={{ color: "#555", fontSize: 10 }}>PROFIT</div>
+                        {i === 0 && <div style={{ fontSize: 14 }}>👑</div>}
                       </div>
                     </div>
                   </Card>
