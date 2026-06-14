@@ -1,12 +1,15 @@
-// App.jsx — Friendly Bets (Firebase Version)
-// Dependencies: npm install firebase
+// App.jsx — Bro-Bets (Firebase Version)
 
 import { useState, useCallback, useEffect } from "react";
+import logo from "./assets/logo.svg";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, updateDoc, deleteDoc, addDoc, getDocs } from "firebase/firestore";
+import {
+  getFirestore, doc, setDoc, getDoc, collection, onSnapshot,
+  updateDoc, deleteDoc, addDoc, getDocs, query, where,
+  increment, arrayUnion, arrayRemove,
+} from "firebase/firestore";
 
-// ── Firebase Init ─────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyCM_zcCiYczoUJ5A4L4p3BwWJUlPesxQ9E",
   authDomain: "friendly-bets-1a2e8.firebaseapp.com",
@@ -14,7 +17,6 @@ const firebaseConfig = {
   storageBucket: "friendly-bets-1a2e8.firebasestorage.app",
   messagingSenderId: "23993982484",
   appId: "1:23993982484:web:abdaa03718e43e22929101",
-  measurementId: "G-VMFX176JQ8"
 };
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -22,10 +24,12 @@ const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 
 // ── Colors ────────────────────────────────────────────────
-const TTU_RED = "#CC0000";
-const TTU_DARK = "#1a1a1a";
-const TTU_WHITE = "#FFFFFF";
-const TTU_GRAY = "#2a2a2a";
+const BLUE    = "#0070C0";
+const DARK    = "#1c1c1e";
+const CARD    = "#3a3a3c";
+const SECTION = "#2c2c2e";
+const DEEP    = "#141414";
+const WHITE   = "#FFFFFF";
 
 // ── Avatar System ─────────────────────────────────────────
 const AVATARS = [
@@ -43,9 +47,13 @@ const AVATARS = [
   { id: "gun",    emoji: "🔫", bg: "#001a1a" },
 ];
 
+const REACTIONS = ["🔥", "💀", "😂", "😤", "🤝", "💰", "⚡", "🏆"];
+
+const genCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
+
 // ── Shared UI ─────────────────────────────────────────────
 const Badge = ({ label, color, small }) => (
-  <span style={{ background: color, color: "#fff", borderRadius: 4, padding: small ? "2px 6px" : "3px 10px", fontSize: small ? 11 : 12, fontWeight: 700, letterSpacing: 1 }}>{label}</span>
+  <span style={{ background: color, color: WHITE, borderRadius: 4, padding: small ? "2px 6px" : "3px 10px", fontSize: small ? 11 : 12, fontWeight: 700, letterSpacing: 1 }}>{label}</span>
 );
 
 const Avatar = ({ name, avatarId, size = 38 }) => {
@@ -55,8 +63,12 @@ const Avatar = ({ name, avatarId, size = 38 }) => {
       {av.emoji}
     </div>
   );
-  const initials = name?.split("_").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-  return <div style={{ width: size, height: size, borderRadius: "50%", background: TTU_RED, color: TTU_WHITE, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: size * 0.35, flexShrink: 0 }}>{initials}</div>;
+  const initials = name?.split("_").map(w => w[0]).join("").slice(0, 2).toUpperCase() || "?";
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", background: BLUE, color: WHITE, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: size * 0.35, flexShrink: 0 }}>
+      {initials}
+    </div>
+  );
 };
 
 const AvatarPicker = ({ value, onChange }) => (
@@ -65,7 +77,7 @@ const AvatarPicker = ({ value, onChange }) => (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
       {AVATARS.map(av => (
         <div key={av.id} onClick={() => onChange(value === av.id ? "" : av.id)}
-          style={{ width: 44, height: 44, borderRadius: "50%", background: av.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, cursor: "pointer", border: value === av.id ? `2px solid ${TTU_RED}` : "2px solid #444" }}>
+          style={{ width: 44, height: 44, borderRadius: "50%", background: av.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, cursor: "pointer", border: value === av.id ? `2px solid ${BLUE}` : "2px solid #444" }}>
           {av.emoji}
         </div>
       ))}
@@ -74,26 +86,28 @@ const AvatarPicker = ({ value, onChange }) => (
 );
 
 const Card = ({ children, style, onClick }) => (
-  <div onClick={onClick} style={{ background: TTU_GRAY, borderRadius: 10, padding: 16, marginBottom: 14, border: "1px solid #333", cursor: onClick ? "pointer" : undefined, ...style }}>{children}</div>
+  <div onClick={onClick} style={{ background: CARD, borderRadius: 10, padding: 16, marginBottom: 14, border: "1px solid #444", cursor: onClick ? "pointer" : undefined, ...style }}>
+    {children}
+  </div>
 );
 
-const Btn = ({ children, onClick, style, variant = "primary", small }) => {
-  const base = { border: "none", borderRadius: 6, fontWeight: 700, cursor: "pointer", letterSpacing: 0.5, padding: small ? "6px 14px" : "10px 20px", fontSize: small ? 12 : 14 };
+const Btn = ({ children, onClick, style, variant = "primary", small, disabled }) => {
+  const base = { border: "none", borderRadius: 6, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", letterSpacing: 0.5, padding: small ? "6px 14px" : "10px 20px", fontSize: small ? 12 : 14, opacity: disabled ? 0.5 : 1 };
   const variants = {
-    primary: { background: TTU_RED, color: TTU_WHITE },
-    outline: { background: "transparent", color: TTU_RED, border: `2px solid ${TTU_RED}` },
-    ghost: { background: "transparent", color: "#aaa", border: "1px solid #444" },
-    danger: { background: "#8b0000", color: TTU_WHITE },
-    success: { background: "#1a7a1a", color: TTU_WHITE },
+    primary: { background: BLUE, color: WHITE },
+    outline:  { background: "transparent", color: BLUE, border: `2px solid ${BLUE}` },
+    ghost:    { background: "transparent", color: "#aaa", border: "1px solid #444" },
+    danger:   { background: "#8b0000", color: WHITE },
+    success:  { background: "#1a7a1a", color: WHITE },
   };
-  return <button onClick={onClick} style={{ ...base, ...variants[variant], ...style }}>{children}</button>;
+  return <button onClick={disabled ? undefined : onClick} style={{ ...base, ...variants[variant], ...style }}>{children}</button>;
 };
 
 const Field = ({ label, type = "text", value, onChange, placeholder }) => (
   <div style={{ marginBottom: 12 }}>
     {label && <div style={{ color: "#aaa", fontSize: 12, marginBottom: 4, fontWeight: 600 }}>{label}</div>}
     <input type={type} value={value} onChange={onChange} placeholder={placeholder}
-      style={{ width: "100%", background: "#111", border: "1px solid #444", borderRadius: 6, color: TTU_WHITE, padding: "9px 12px", fontSize: 14, boxSizing: "border-box" }} />
+      style={{ width: "100%", background: "#111", border: "1px solid #444", borderRadius: 6, color: WHITE, padding: "9px 12px", fontSize: 14, boxSizing: "border-box" }} />
   </div>
 );
 
@@ -101,11 +115,128 @@ const Sel = ({ label, value, onChange, children }) => (
   <div style={{ marginBottom: 12 }}>
     {label && <div style={{ color: "#aaa", fontSize: 12, marginBottom: 4, fontWeight: 600 }}>{label}</div>}
     <select value={value} onChange={onChange}
-      style={{ width: "100%", background: "#111", border: "1px solid #444", borderRadius: 6, color: TTU_WHITE, padding: "9px 12px", fontSize: 14, boxSizing: "border-box" }}>
+      style={{ width: "100%", background: "#111", border: "1px solid #444", borderRadius: 6, color: WHITE, padding: "9px 12px", fontSize: 14, boxSizing: "border-box" }}>
       {children}
     </select>
   </div>
 );
+
+// ── Countdown Timer ───────────────────────────────────────
+function CountdownTimer({ endDate, compact }) {
+  const [left, setLeft] = useState(null);
+  useEffect(() => {
+    const calc = () => {
+      const diff = new Date(endDate) - Date.now();
+      if (diff <= 0) { setLeft({ expired: true }); return; }
+      setLeft({ days: Math.floor(diff / 86400000), hours: Math.floor((diff % 86400000) / 3600000), mins: Math.floor((diff % 3600000) / 60000), secs: Math.floor((diff % 60000) / 1000) });
+    };
+    calc();
+    const id = setInterval(calc, 1000);
+    return () => clearInterval(id);
+  }, [endDate]);
+
+  if (!left) return null;
+  if (left.expired) return <span style={{ color: "#ff4444", fontWeight: 700 }}>Season Ended</span>;
+  const urgent = left.days < 1;
+  if (compact) return <span style={{ color: urgent ? "#ff4444" : "#aaa", fontSize: 12, fontWeight: 700 }}>⏱ {left.days}d {left.hours}h {left.mins}m</span>;
+
+  return (
+    <div style={{ background: DEEP, borderRadius: 10, padding: "12px 16px", marginBottom: 14, border: `1px solid ${urgent ? "#ff4444" : BLUE}` }}>
+      <div style={{ color: "#aaa", fontSize: 11, fontWeight: 700, marginBottom: 8, letterSpacing: 1 }}>⏱ SEASON COUNTDOWN</div>
+      <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+        {[["DAYS", left.days], ["HRS", left.hours], ["MIN", left.mins], ["SEC", left.secs]].map(([l, v]) => (
+          <div key={l} style={{ textAlign: "center" }}>
+            <div style={{ color: urgent ? "#ff4444" : WHITE, fontWeight: 900, fontSize: 24 }}>{String(v).padStart(2, "0")}</div>
+            <div style={{ color: "#666", fontSize: 10 }}>{l}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Reactions ─────────────────────────────────────────────
+function ReactionBar({ betId, currentUserId }) {
+  const [data, setData] = useState({});
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "reactions", betId), snap => setData(snap.exists() ? snap.data() : {}));
+    return unsub;
+  }, [betId]);
+
+  const toggle = async emoji => {
+    const ref = doc(db, "reactions", betId);
+    const list = data[emoji] || [];
+    if (list.includes(currentUserId)) await setDoc(ref, { [emoji]: arrayRemove(currentUserId) }, { merge: true });
+    else await setDoc(ref, { [emoji]: arrayUnion(currentUserId) }, { merge: true });
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
+      {REACTIONS.map(e => {
+        const list = data[e] || [];
+        const active = list.includes(currentUserId);
+        return (
+          <button key={e} onClick={() => toggle(e)}
+            style={{ background: active ? BLUE + "33" : "#111", border: `1px solid ${active ? BLUE : "#444"}`, borderRadius: 20, padding: "3px 8px", fontSize: 13, cursor: "pointer", color: WHITE, display: "flex", alignItems: "center", gap: 3 }}>
+            {e}{list.length > 0 && <span style={{ fontSize: 10, color: "#aaa" }}>{list.length}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Comments ──────────────────────────────────────────────
+function CommentSection({ betId, currentUser, users }) {
+  const [msgs, setMsgs] = useState([]);
+  const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const unsub = onSnapshot(collection(db, "bets", betId, "comments"), snap => {
+      setMsgs(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.createdAt - b.createdAt));
+    });
+    return unsub;
+  }, [betId, open]);
+
+  const send = async () => {
+    if (!text.trim()) return;
+    await addDoc(collection(db, "bets", betId, "comments"), { userId: currentUser.id, text: text.trim(), createdAt: Date.now() });
+    setText("");
+  };
+
+  const getU = id => users.find(u => u.id === id);
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button onClick={() => setOpen(o => !o)} style={{ background: "none", border: "none", color: "#aaa", fontSize: 12, cursor: "pointer", padding: 0 }}>
+        💬 {open ? "Hide" : `Comments${msgs.length > 0 && !open ? ` (${msgs.length})` : ""}`}
+      </button>
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          {msgs.map(m => {
+            const u = getU(m.userId);
+            return (
+              <div key={m.id} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <Avatar name={u?.username} avatarId={u?.avatarId} size={24} />
+                <div style={{ background: "#111", borderRadius: 8, padding: "5px 10px", flex: 1 }}>
+                  <span style={{ color: BLUE, fontSize: 11, fontWeight: 700 }}>{u?.username} </span>
+                  <span style={{ color: WHITE, fontSize: 13 }}>{m.text}</span>
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === "Enter" && send()}
+              placeholder="Add a comment..." style={{ flex: 1, background: "#111", border: "1px solid #444", borderRadius: 6, color: WHITE, padding: "6px 10px", fontSize: 13 }} />
+            <Btn small onClick={send}>Send</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Login Page ────────────────────────────────────────────
 function LoginPage({ showToast }) {
@@ -117,15 +248,11 @@ function LoginPage({ showToast }) {
   const login = async () => {
     if (loading) return;
     setLoading(true);
-    const email = `${lf.username.toLowerCase()}@friendlybets.app`;
     try {
-      await signInWithEmailAndPassword(auth, email, lf.password);
-      showToast(`Welcome back, ${lf.username}! ⚔️`);
-    } catch (e) {
-      showToast("Invalid username or password", "error");
-    } finally {
-      setLoading(false);
-    }
+      await signInWithEmailAndPassword(auth, `${lf.username.toLowerCase()}@brobets.app`, lf.password);
+      showToast(`Welcome back, ${lf.username}! 🤝`);
+    } catch { showToast("Invalid username or password", "error"); }
+    finally { setLoading(false); }
   };
 
   const signup = async () => {
@@ -133,50 +260,33 @@ function LoginPage({ showToast }) {
     if (!sf.username) return showToast("Username required", "error");
     if (!sf.password || sf.password.length < 6) return showToast("Password must be 6+ characters", "error");
     setLoading(true);
-    const email = `${sf.username.toLowerCase()}@friendlybets.app`;
     try {
-      // Check if username already exists first
-      const usersSnap = await getDocs(collection(db, "users"));
-      const taken = usersSnap.docs.some(d => d.data().username.toLowerCase() === sf.username.toLowerCase());
-      if (taken) {
-        showToast("Username already taken", "error");
-        setLoading(false);
-        return;
+      const snap = await getDocs(collection(db, "users"));
+      if (snap.docs.some(d => d.data().username.toLowerCase() === sf.username.toLowerCase())) {
+        showToast("Username taken", "error"); return;
       }
-      const cred = await createUserWithEmailAndPassword(auth, email, sf.password);
+      const cred = await createUserWithEmailAndPassword(auth, `${sf.username.toLowerCase()}@brobets.app`, sf.password);
       await setDoc(doc(db, "users", cred.user.uid), {
-        id: cred.user.uid,
-        username: sf.username,
-        venmo: sf.venmo || "",
-        cashapp: sf.cashapp || "",
-        zelle: sf.zelle || "",
-        avatarId: sf.avatarId || "",
-        wins: 0,
-        losses: 0,
-        dishonorable: false,
-        dishonorableDebts: [],
+        id: cred.user.uid, username: sf.username,
+        venmo: sf.venmo || "", cashapp: sf.cashapp || "", zelle: sf.zelle || "",
+        avatarId: sf.avatarId || "", wins: 0, losses: 0, dishonorable: false, dishonorableDebts: [],
       });
-      showToast(`Welcome, ${sf.username}! Wreck 'Em! 🔫`);
+      showToast(`Welcome, ${sf.username}! Let's Bet Bro! 🤝`);
     } catch (e) {
-      if (e.code === "auth/email-already-in-use") showToast("Username already taken", "error");
-      else showToast("Signup failed: " + e.message, "error");
-    } finally {
-      setLoading(false);
-    }
+      showToast(e.code === "auth/email-already-in-use" ? "Username taken" : "Signup failed", "error");
+    } finally { setLoading(false); }
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: TTU_DARK, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <div style={{ minHeight: "100vh", background: DARK, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ width: "100%", maxWidth: 380 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 48, marginBottom: 8 }}>🔫</div>
-          <div style={{ color: TTU_RED, fontWeight: 900, fontSize: 32, letterSpacing: 2 }}>FRIENDLY BETS</div>
-          <div style={{ color: "#aaa", fontSize: 14 }}>Hold your homies accountable</div>
+          <img src={logo} alt="Bro-Bets" style={{ width: 180 }} />
         </div>
-        <div style={{ background: TTU_GRAY, borderRadius: 12, padding: 24, border: `2px solid ${TTU_RED}` }}>
+        <div style={{ background: SECTION, borderRadius: 12, padding: 24, border: `2px solid ${BLUE}` }}>
           <div style={{ display: "flex", marginBottom: 20, borderBottom: "1px solid #444" }}>
             {["login", "signup"].map(m => (
-              <button key={m} onClick={() => setMode(m)} style={{ flex: 1, background: "none", border: "none", color: mode === m ? TTU_RED : "#aaa", fontWeight: 700, fontSize: 14, padding: "10px 0", cursor: "pointer", borderBottom: mode === m ? `2px solid ${TTU_RED}` : "none", letterSpacing: 1 }}>
+              <button key={m} onClick={() => setMode(m)} style={{ flex: 1, background: "none", border: "none", color: mode === m ? BLUE : "#aaa", fontWeight: 700, fontSize: 14, padding: "10px 0", cursor: "pointer", borderBottom: mode === m ? `2px solid ${BLUE}` : "none", letterSpacing: 1 }}>
                 {m === "login" ? "LOG IN" : "SIGN UP"}
               </button>
             ))}
@@ -186,19 +296,19 @@ function LoginPage({ showToast }) {
               <Field label="Username" placeholder="Your username" value={lf.username} onChange={e => setLf(f => ({ ...f, username: e.target.value }))} />
               <Field label="Password" type="password" placeholder="••••••••" value={lf.password} onChange={e => setLf(f => ({ ...f, password: e.target.value }))} />
               <Btn onClick={login} style={{ width: "100%", marginTop: 8, opacity: loading ? 0.6 : 1 }}>
-                {loading ? "Logging in..." : "Wreck 'Em In 🔫"}
+                {loading ? "Logging in..." : "Log In 🤝"}
               </Btn>
             </>
           ) : (
             <>
-              <Field label="Username" placeholder="Raider_Name" value={sf.username} onChange={e => setSf(f => ({ ...f, username: e.target.value }))} />
+              <Field label="Username" placeholder="BroName" value={sf.username} onChange={e => setSf(f => ({ ...f, username: e.target.value }))} />
               <Field label="Password" type="password" placeholder="6+ characters" value={sf.password} onChange={e => setSf(f => ({ ...f, password: e.target.value }))} />
               <Field label="Venmo (optional)" placeholder="@username" value={sf.venmo} onChange={e => setSf(f => ({ ...f, venmo: e.target.value }))} />
               <Field label="CashApp (optional)" placeholder="$username" value={sf.cashapp} onChange={e => setSf(f => ({ ...f, cashapp: e.target.value }))} />
               <Field label="Zelle (optional)" placeholder="phone or email" value={sf.zelle} onChange={e => setSf(f => ({ ...f, zelle: e.target.value }))} />
               <AvatarPicker value={sf.avatarId} onChange={id => setSf(f => ({ ...f, avatarId: id }))} />
               <Btn onClick={signup} style={{ width: "100%", marginTop: 8, opacity: loading ? 0.6 : 1 }}>
-                {loading ? "Creating account..." : "Create Account 🏴"}
+                {loading ? "Creating account..." : "Create Account 🤝"}
               </Btn>
             </>
           )}
@@ -207,10 +317,126 @@ function LoginPage({ showToast }) {
     </div>
   );
 }
+
+// ── League Lobby ──────────────────────────────────────────
+function LeagueLobby({ currentUser, showToast, myLeagues, onSelectLeague }) {
+  const [tab, setTab] = useState("my");
+  const [cf, setCf] = useState({ name: "", emoji: "🏆", themeColor: BLUE, startingMonies: "1000", endDate: "" });
+  const [joinCode, setJoinCode] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const createLeague = async () => {
+    if (!cf.name.trim()) return showToast("League name required", "error");
+    setLoading(true);
+    try {
+      const inviteCode = genCode();
+      const ref = await addDoc(collection(db, "leagues"), {
+        name: cf.name.trim(), emoji: cf.emoji || "🏆",
+        inviteCode, themeColor: cf.themeColor || BLUE,
+        startingMonies: Number(cf.startingMonies) || 1000,
+        endDate: cf.endDate || "",
+        commissionerId: currentUser.id,
+        coCommissionerIds: [],
+        status: "active",
+        seasonEndBehavior: "reset",
+        createdAt: Date.now(),
+      });
+      await setDoc(doc(db, "leagueMembers", `${ref.id}_${currentUser.id}`), {
+        leagueId: ref.id, userId: currentUser.id, role: "commissioner",
+        monies: Number(cf.startingMonies) || 1000, wins: 0, losses: 0, joinedAt: Date.now(),
+      });
+      showToast(`"${cf.name}" created! Code: ${inviteCode}`);
+      setTab("my");
+    } catch { showToast("Failed to create league", "error"); }
+    finally { setLoading(false); }
+  };
+
+  const joinLeague = async () => {
+    if (!joinCode.trim()) return showToast("Enter an invite code", "error");
+    setLoading(true);
+    try {
+      const snap = await getDocs(query(collection(db, "leagues"), where("inviteCode", "==", joinCode.trim().toUpperCase())));
+      if (snap.empty) { showToast("Invalid invite code", "error"); return; }
+      const leagueDoc = snap.docs[0];
+      const league = { id: leagueDoc.id, ...leagueDoc.data() };
+      const memberRef = doc(db, "leagueMembers", `${league.id}_${currentUser.id}`);
+      if ((await getDoc(memberRef)).exists()) { showToast("Already in this league!", "error"); return; }
+      await setDoc(memberRef, {
+        leagueId: league.id, userId: currentUser.id, role: "member",
+        monies: league.startingMonies || 1000, wins: 0, losses: 0, joinedAt: Date.now(),
+      });
+      showToast(`Joined "${league.name}"! Let's Bet Bro! 🤝`);
+      setTab("my");
+    } catch { showToast("Failed to join league", "error"); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: DARK, padding: 24 }}>
+      <div style={{ textAlign: "center", marginBottom: 24 }}>
+        <img src={logo} alt="Bro-Bets" style={{ width: 160 }} />
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        {[["my", "My Leagues"], ["create", "Create"], ["join", "Join"]].map(([t, l]) => (
+          <Btn key={t} small variant={tab === t ? "primary" : "ghost"} onClick={() => setTab(t)} style={{ flex: 1 }}>{l}</Btn>
+        ))}
+      </div>
+
+      {tab === "my" && (
+        <>
+          {myLeagues.length === 0
+            ? <div style={{ color: "#555", textAlign: "center", padding: 40 }}>No leagues yet. Create or join one!</div>
+            : myLeagues.map(l => (
+              <Card key={l.id} onClick={() => onSelectLeague(l)} style={{ borderColor: l.themeColor || BLUE }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 28 }}>{l.emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ color: WHITE, fontWeight: 800, fontSize: 16 }}>{l.name}</div>
+                    <div style={{ color: "#aaa", fontSize: 12 }}>Code: {l.inviteCode} · 💰 {l.startingMonies} starting</div>
+                  </div>
+                  <Btn small>Enter →</Btn>
+                </div>
+              </Card>
+            ))}
+          <div style={{ marginTop: 12, textAlign: "right" }}>
+            <Btn variant="ghost" small onClick={() => signOut(auth)}>Sign Out</Btn>
+          </div>
+        </>
+      )}
+
+      {tab === "create" && (
+        <div style={{ background: SECTION, borderRadius: 12, padding: 20, border: "1px solid #444" }}>
+          <Field label="League Name" placeholder="The Boys League" value={cf.name} onChange={e => setCf(f => ({ ...f, name: e.target.value }))} />
+          <Field label="League Emoji" placeholder="🏆" value={cf.emoji} onChange={e => setCf(f => ({ ...f, emoji: e.target.value }))} />
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ color: "#aaa", fontSize: 12, marginBottom: 4, fontWeight: 600 }}>Theme Color</div>
+            <input type="color" value={cf.themeColor} onChange={e => setCf(f => ({ ...f, themeColor: e.target.value }))}
+              style={{ width: 48, height: 36, border: "1px solid #444", borderRadius: 6, background: "none", cursor: "pointer" }} />
+          </div>
+          <Field label="Starting 💰 Monies" type="number" placeholder="1000" value={cf.startingMonies} onChange={e => setCf(f => ({ ...f, startingMonies: e.target.value }))} />
+          <Field label="Season End Date (optional)" type="date" value={cf.endDate} onChange={e => setCf(f => ({ ...f, endDate: e.target.value }))} />
+          <Btn onClick={createLeague} style={{ width: "100%" }} disabled={loading}>{loading ? "Creating..." : "Create League 🏆"}</Btn>
+        </div>
+      )}
+
+      {tab === "join" && (
+        <div style={{ background: SECTION, borderRadius: 12, padding: 20, border: "1px solid #444" }}>
+          <Field label="Invite Code" placeholder="ABC123" value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase())} />
+          <Btn onClick={joinLeague} style={{ width: "100%" }} disabled={loading}>{loading ? "Joining..." : "Join League 🤝"}</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Create Bet Modal ──────────────────────────────────────
-function CreateBetModal({ users, currentUser, onClose, showToast }) {
-  const [form, setForm] = useState({ type: "1v1", opponentId: "", description: "", stakes: "", amount: "", deadline: "", winType: "single", inviteIds: [] });
+function CreateBetModal({ users, currentUser, league, myMember, onClose, showToast }) {
+  const [form, setForm] = useState({
+    type: "1v1", opponentId: "", description: "", stakes: "",
+    amount: "", deadline: "", winType: "single", inviteIds: [], anyAction: false,
+  });
   const others = users.filter(u => u.id !== currentUser.id);
+  const balance = myMember?.monies ?? 0;
 
   const toggleInvite = id => setForm(f => ({
     ...f, inviteIds: f.inviteIds.includes(id) ? f.inviteIds.filter(i => i !== id) : [...f.inviteIds, id]
@@ -218,49 +444,76 @@ function CreateBetModal({ users, currentUser, onClose, showToast }) {
 
   const submit = async () => {
     if (!form.description) return showToast("Add a bet description", "error");
+    const amt = parseFloat(form.amount) || 0;
+    if (amt > balance) return showToast(`Not enough 💰 Monies (have ${balance})`, "error");
+    if (!form.anyAction && form.type === "1v1" && !form.opponentId) return showToast("Select an opponent", "error");
+
     const bet = {
-      type: form.type, creator: currentUser.id, description: form.description,
-      stakes: form.stakes, amount: parseFloat(form.amount) || 0,
-      deadline: form.deadline, status: form.type === "1v1" ? "pending_acceptance" : "active",
-      winner: null, createdAt: Date.now()
+      leagueId: league.id, type: form.anyAction ? "1v1" : form.type,
+      creator: currentUser.id, description: form.description,
+      stakes: form.stakes, amount: amt, deadline: form.deadline,
+      anyAction: form.anyAction,
+      status: form.anyAction ? "open" : (form.type === "1v1" ? "pending_acceptance" : "active"),
+      winner: null, createdAt: Date.now(),
     };
-    if (form.type === "1v1") {
-      if (!form.opponentId) return showToast("Select an opponent", "error");
-      bet.opponent = form.opponentId; bet.paidStatus = null; bet.reportedUnpaid = false;
-    } else {
-      const ids = form.inviteIds.filter(Boolean);
-      bet.participants = [
-        { userId: currentUser.id, amount: parseFloat(form.amount) || 0, paid: true },
-        ...ids.map(id => ({ userId: id, amount: parseFloat(form.amount) || 0, paid: false }))
-      ];
-      bet.winType = form.winType; bet.resolveVotes = {};
+
+    if (!form.anyAction) {
+      if (form.type === "1v1") {
+        bet.opponent = form.opponentId; bet.paidStatus = null; bet.reportedUnpaid = false;
+      } else {
+        const ids = form.inviteIds.filter(Boolean);
+        bet.participants = [
+          { userId: currentUser.id, amount: amt, paid: true },
+          ...ids.map(id => ({ userId: id, amount: amt, paid: false }))
+        ];
+        bet.winType = form.winType; bet.resolveVotes = {};
+      }
+    }
+
+    if (amt > 0) {
+      await updateDoc(doc(db, "leagueMembers", `${league.id}_${currentUser.id}`), { monies: increment(-amt) });
     }
     await addDoc(collection(db, "bets"), bet);
     onClose();
-    showToast("Bet created! 🔫 Wreck 'Em!");
+    showToast(form.anyAction ? "⚡ Any Action? posted to feed!" : "Bet created! 💰");
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-      <div style={{ background: TTU_GRAY, borderRadius: 12, padding: 24, width: "100%", maxWidth: 420, border: `2px solid ${TTU_RED}`, maxHeight: "90vh", overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
+      <div style={{ background: SECTION, borderRadius: 12, padding: 24, width: "100%", maxWidth: 420, border: `2px solid ${BLUE}`, maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <span style={{ color: TTU_WHITE, fontWeight: 800, fontSize: 18 }}>⚔️ New Bet</span>
+          <span style={{ color: WHITE, fontWeight: 800, fontSize: 18 }}>💰 New Bet</span>
           <Btn variant="ghost" small onClick={onClose}>✕</Btn>
         </div>
-        <Sel label="Bet Type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
-          <option value="1v1">1 vs 1</option>
-          <option value="pot">🪣 Group Pot</option>
-        </Sel>
-        {form.type === "1v1" ? (
+        <div style={{ background: DEEP, borderRadius: 8, padding: "8px 12px", marginBottom: 12, color: "#aaa", fontSize: 12 }}>
+          Balance: <span style={{ color: BLUE, fontWeight: 700 }}>💰 {balance} Monies</span>
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 10, background: form.anyAction ? BLUE + "22" : DEEP, borderRadius: 8, padding: "10px 12px", marginBottom: 12, cursor: "pointer", border: form.anyAction ? `1px solid ${BLUE}` : "1px solid #333" }}>
+          <input type="checkbox" checked={form.anyAction} onChange={e => setForm(f => ({ ...f, anyAction: e.target.checked }))} />
+          <div>
+            <div style={{ color: WHITE, fontWeight: 700, fontSize: 14 }}>⚡ Any Action?</div>
+            <div style={{ color: "#aaa", fontSize: 11 }}>Post to feed — first member to claim locks it in</div>
+          </div>
+        </label>
+
+        {!form.anyAction && (
+          <Sel label="Bet Type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+            <option value="1v1">1 vs 1</option>
+            <option value="pot">🪣 Group Pot</option>
+          </Sel>
+        )}
+        {!form.anyAction && form.type === "1v1" && (
           <Sel label="Challenge" value={form.opponentId} onChange={e => setForm(f => ({ ...f, opponentId: e.target.value }))}>
             <option value="">Select opponent...</option>
             {others.map(u => <option key={u.id} value={u.id}>{u.username}{u.dishonorable ? " 🏴" : ""}</option>)}
           </Sel>
-        ) : (
+        )}
+        {!form.anyAction && form.type === "pot" && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ color: "#aaa", fontSize: 12, marginBottom: 4, fontWeight: 600 }}>Invite Friends</div>
             {others.map(u => (
-              <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, color: TTU_WHITE, marginBottom: 6, cursor: "pointer" }}>
+              <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, color: WHITE, marginBottom: 6, cursor: "pointer" }}>
                 <input type="checkbox" checked={form.inviteIds.includes(u.id)} onChange={() => toggleInvite(u.id)} />
                 {u.username}{u.dishonorable ? " 🏴" : ""}
               </label>
@@ -269,16 +522,16 @@ function CreateBetModal({ users, currentUser, onClose, showToast }) {
         )}
         <Field label="Bet Description" placeholder="e.g. Cowboys win Sunday" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
         <Field label="Stakes (custom)" placeholder="e.g. Buy dinner" value={form.stakes} onChange={e => setForm(f => ({ ...f, stakes: e.target.value }))} />
-        <Field label="$ Amount" type="number" placeholder="0.00" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+        <Field label="💰 Monies Wagered" type="number" placeholder="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
         <Field label="Deadline" type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} />
-        {form.type === "pot" && (
+        {!form.anyAction && form.type === "pot" && (
           <Sel label="Win Type" value={form.winType} onChange={e => setForm(f => ({ ...f, winType: e.target.value }))}>
             <option value="single">Single winner takes all</option>
             <option value="split">Split among winners</option>
           </Sel>
         )}
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <Btn onClick={submit} style={{ flex: 1 }}>Create Bet 🔫</Btn>
+          <Btn onClick={submit} style={{ flex: 1 }}>Create Bet 💰</Btn>
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
@@ -287,7 +540,7 @@ function CreateBetModal({ users, currentUser, onClose, showToast }) {
 }
 
 // ── Profile Modal ─────────────────────────────────────────
-function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
+function ProfileModal({ user, currentUser, bets, memberData, onClose, showToast }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ venmo: user.venmo || "", cashapp: user.cashapp || "", zelle: user.zelle || "", avatarId: user.avatarId || "" });
   const isSelf = user.id === currentUser.id;
@@ -299,7 +552,7 @@ function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
     onClose();
   };
 
-  const clearDishonorable = async (betId) => {
+  const clearDishonorable = async betId => {
     await updateDoc(doc(db, "bets", betId), { paidStatus: "paid", reportedUnpaid: false });
     const newDebts = (user.dishonorableDebts || []).filter(d => d !== betId);
     await updateDoc(doc(db, "users", currentUser.id), { dishonorableDebts: newDebts, dishonorable: newDebts.length > 0 });
@@ -309,25 +562,36 @@ function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-      <div style={{ background: TTU_GRAY, borderRadius: 12, padding: 24, width: "100%", maxWidth: 380, border: `2px solid ${TTU_RED}` }}>
+      <div style={{ background: SECTION, borderRadius: 12, padding: 24, width: "100%", maxWidth: 380, border: `2px solid ${BLUE}`, maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <Avatar name={user.username} avatarId={user.avatarId} size={48} />
             <div>
-              <div style={{ color: TTU_WHITE, fontWeight: 800, fontSize: 18 }}>{user.username}</div>
+              <div style={{ color: WHITE, fontWeight: 800, fontSize: 18 }}>{user.username}</div>
               {user.dishonorable && <Badge label="🏴 DISHONORABLE" color="#8b0000" />}
+              {memberData?.role === "commissioner" && <Badge label="COMMISSIONER" color={BLUE} />}
+              {memberData?.role === "co-commissioner" && <Badge label="CO-COMM" color={BLUE} />}
             </div>
           </div>
           <Btn variant="ghost" small onClick={onClose}>✕</Btn>
         </div>
-        <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
-          {[["WINS", user.wins, TTU_RED], ["LOSSES", user.losses, "#aaa"]].map(([l, v, c]) => (
+
+        {memberData && (
+          <div style={{ background: DEEP, borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ color: "#aaa", fontSize: 12 }}>💰 Monies Balance</div>
+            <div style={{ color: BLUE, fontWeight: 900, fontSize: 22 }}>{memberData.monies ?? 0}</div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+          {[["WINS", user.wins, BLUE], ["LOSSES", user.losses, "#aaa"]].map(([l, v, c]) => (
             <div key={l} style={{ textAlign: "center", flex: 1, background: "#111", borderRadius: 8, padding: 10 }}>
               <div style={{ color: c, fontWeight: 800, fontSize: 22 }}>{v}</div>
               <div style={{ color: "#aaa", fontSize: 12 }}>{l}</div>
             </div>
           ))}
         </div>
+
         {editing ? (
           <>
             <AvatarPicker value={form.avatarId} onChange={id => setForm(f => ({ ...f, avatarId: id }))} />
@@ -345,13 +609,14 @@ function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
               {[["Venmo", user.venmo], ["CashApp", user.cashapp], ["Zelle", user.zelle]].map(([label, val]) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #333" }}>
                   <span style={{ color: "#aaa", fontSize: 13 }}>{label}</span>
-                  <span style={{ color: val ? TTU_WHITE : "#555", fontSize: 13 }}>{val || "Not set"}</span>
+                  <span style={{ color: val ? WHITE : "#555", fontSize: 13 }}>{val || "Not set"}</span>
                 </div>
               ))}
             </div>
             {isSelf && <Btn variant="outline" onClick={() => setEditing(true)} style={{ width: "100%", marginBottom: 8 }}>Edit Profile</Btn>}
           </>
         )}
+
         {isSelf && user.dishonorableDebts?.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <div style={{ color: "#ff4444", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🏴 Settle to clear flag:</div>
@@ -360,7 +625,7 @@ function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
               if (!b) return null;
               return (
                 <div key={betId} style={{ background: "#111", borderRadius: 6, padding: "8px 10px", marginBottom: 6 }}>
-                  <div style={{ color: TTU_WHITE, fontSize: 13 }}>{b.description}</div>
+                  <div style={{ color: WHITE, fontSize: 13 }}>{b.description}</div>
                   <Btn variant="success" small onClick={() => clearDishonorable(betId)} style={{ marginTop: 6 }}>Mark as Paid ✅</Btn>
                 </div>
               );
@@ -372,27 +637,146 @@ function ProfileModal({ user, currentUser, bets, onClose, showToast }) {
   );
 }
 
-// ── Bets Page ─────────────────────────────────────────────
-function BetsPage({ myBets, setModal, BetCard }) {
-  const [filter, setFilter] = useState("all");
-  const filtered = myBets.filter(b => filter === "all" || b.status === filter);
+// ── Commissioner Dashboard ────────────────────────────────
+function CommissionerDashboard({ league, currentUser, members, users, onClose, showToast }) {
+  const [tab, setTab] = useState("members");
+  const [giftForm, setGiftForm] = useState({ userId: "", amount: "" });
+  const [announcement, setAnnouncement] = useState("");
+  const [endDate, setEndDate] = useState(league.endDate || "");
+  const [behavior, setBehavior] = useState(league.seasonEndBehavior || "reset");
+
+  const getU = id => users.find(u => u.id === id);
+
+  const kickMember = async uid => {
+    if (!window.confirm("Remove this member from the league?")) return;
+    await deleteDoc(doc(db, "leagueMembers", `${league.id}_${uid}`));
+    showToast("Member removed.");
+  };
+
+  const promote = async uid => {
+    await updateDoc(doc(db, "leagueMembers", `${league.id}_${uid}`), { role: "co-commissioner" });
+    await updateDoc(doc(db, "leagues", league.id), { coCommissionerIds: arrayUnion(uid) });
+    showToast("Promoted to Co-Commissioner! 🤝");
+  };
+
+  const demote = async uid => {
+    await updateDoc(doc(db, "leagueMembers", `${league.id}_${uid}`), { role: "member" });
+    await updateDoc(doc(db, "leagues", league.id), { coCommissionerIds: arrayRemove(uid) });
+    showToast("Demoted to Member.");
+  };
+
+  const giftMonies = async () => {
+    if (!giftForm.userId || !giftForm.amount) return showToast("Select member and amount", "error");
+    const amt = parseInt(giftForm.amount);
+    if (isNaN(amt)) return showToast("Invalid amount", "error");
+    await updateDoc(doc(db, "leagueMembers", `${league.id}_${giftForm.userId}`), { monies: increment(amt) });
+    showToast(`${amt >= 0 ? "Gifted" : "Deducted"} 💰 ${Math.abs(amt)} Monies!`);
+    setGiftForm({ userId: "", amount: "" });
+  };
+
+  const postAnnouncement = async () => {
+    if (!announcement.trim()) return;
+    await addDoc(collection(db, "announcements"), {
+      leagueId: league.id, text: announcement.trim(),
+      commissionerId: currentUser.id, pinned: true, createdAt: Date.now(),
+    });
+    setAnnouncement("");
+    showToast("Announcement posted! 📣");
+  };
+
+  const saveSettings = async () => {
+    await updateDoc(doc(db, "leagues", league.id), { endDate, seasonEndBehavior: behavior });
+    showToast("Settings saved!");
+  };
+
+  const newSeason = async () => {
+    if (!window.confirm(`Start new season? Monies will ${behavior === "reset" ? "reset to " + league.startingMonies : "carry over"}.`)) return;
+    for (const m of members) {
+      const update = { wins: 0, losses: 0 };
+      if (behavior === "reset") update.monies = league.startingMonies || 1000;
+      await updateDoc(doc(db, "leagueMembers", `${league.id}_${m.userId}`), update);
+    }
+    await updateDoc(doc(db, "leagues", league.id), { status: "active", endDate: "" });
+    showToast("New season started! 🏆");
+    onClose();
+  };
+
   return (
-    <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <div style={{ color: TTU_WHITE, fontWeight: 800, fontSize: 20 }}>⚔️ My Bets</div>
-        <Btn small onClick={() => setModal({ type: "create" })}>+ New</Btn>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.92)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 16 }}>
+      <div style={{ background: SECTION, borderRadius: 12, width: "100%", maxWidth: 460, border: `2px solid ${BLUE}`, maxHeight: "92vh", overflowY: "auto" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #444", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ color: WHITE, fontWeight: 800, fontSize: 16 }}>⚙️ Commissioner Dashboard</span>
+          <Btn variant="ghost" small onClick={onClose}>✕</Btn>
+        </div>
+        <div style={{ display: "flex", borderBottom: "1px solid #333" }}>
+          {[["members", "👥 Members"], ["monies", "💰 Monies"], ["announce", "📣 Post"], ["settings", "⚙️ Season"]].map(([t, l]) => (
+            <button key={t} onClick={() => setTab(t)} style={{ flex: 1, background: "none", border: "none", color: tab === t ? BLUE : "#aaa", fontWeight: 700, fontSize: 11, padding: "10px 0", cursor: "pointer", borderBottom: tab === t ? `2px solid ${BLUE}` : "none" }}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div style={{ padding: 20 }}>
+
+          {tab === "members" && members.map(m => {
+            const u = getU(m.userId);
+            if (!u) return null;
+            const isComm = m.userId === league.commissionerId;
+            return (
+              <div key={m.userId} style={{ display: "flex", alignItems: "center", gap: 10, background: DEEP, borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+                <Avatar name={u.username} avatarId={u.avatarId} size={32} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: WHITE, fontWeight: 700, fontSize: 13 }}>{u.username}</div>
+                  <div style={{ color: "#aaa", fontSize: 11 }}>{m.role} · 💰 {m.monies} · {m.wins}W {m.losses}L</div>
+                </div>
+                {!isComm && (
+                  <div style={{ display: "flex", gap: 5 }}>
+                    {m.role === "member" && <Btn small variant="outline" onClick={() => promote(m.userId)}>↑ Promote</Btn>}
+                    {m.role === "co-commissioner" && <Btn small variant="ghost" onClick={() => demote(m.userId)}>↓</Btn>}
+                    <Btn small variant="danger" onClick={() => kickMember(m.userId)}>Kick</Btn>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {tab === "monies" && (
+            <>
+              <div style={{ color: "#aaa", fontSize: 12, fontWeight: 700, marginBottom: 10 }}>GIFT / DEDUCT 💰 MONIES</div>
+              <Sel label="Member" value={giftForm.userId} onChange={e => setGiftForm(f => ({ ...f, userId: e.target.value }))}>
+                <option value="">Select member...</option>
+                {members.map(m => { const u = getU(m.userId); return u ? <option key={m.userId} value={m.userId}>{u.username} (💰 {m.monies})</option> : null; })}
+              </Sel>
+              <Field label="Amount (negative to deduct)" type="number" placeholder="100" value={giftForm.amount} onChange={e => setGiftForm(f => ({ ...f, amount: e.target.value }))} />
+              <Btn onClick={giftMonies} style={{ width: "100%" }}>Apply 💰</Btn>
+            </>
+          )}
+
+          {tab === "announce" && (
+            <>
+              <div style={{ color: "#aaa", fontSize: 12, fontWeight: 700, marginBottom: 10 }}>📣 PIN ANNOUNCEMENT TO FEED</div>
+              <Field label="Message" placeholder="Heads up Bros..." value={announcement} onChange={e => setAnnouncement(e.target.value)} />
+              <Btn onClick={postAnnouncement} style={{ width: "100%" }}>Post 📣</Btn>
+            </>
+          )}
+
+          {tab === "settings" && (
+            <>
+              <div style={{ color: "#aaa", fontSize: 12, fontWeight: 700, marginBottom: 10 }}>SEASON SETTINGS</div>
+              <Field label="Season End Date" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+              <Sel label="End of Season Behavior" value={behavior} onChange={e => setBehavior(e.target.value)}>
+                <option value="reset">Reset Monies to {league.startingMonies}</option>
+                <option value="carryover">Carry over Monies</option>
+              </Sel>
+              <Btn onClick={saveSettings} style={{ width: "100%", marginBottom: 16 }}>Save Settings</Btn>
+              <div style={{ borderTop: "1px solid #444", paddingTop: 14 }}>
+                <div style={{ color: "#ff4444", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>⚠️ DANGER ZONE</div>
+                <Btn variant="danger" onClick={newSeason} style={{ width: "100%" }}>🔄 Start New Season</Btn>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-        {["all","active","settled","pending_acceptance"].map(f => (
-          <Btn key={f} small variant={filter === f ? "primary" : "ghost"} onClick={() => setFilter(f)}>
-            {f === "pending_acceptance" ? "Pending" : f.charAt(0).toUpperCase() + f.slice(1)}
-          </Btn>
-        ))}
-      </div>
-      {filtered.length === 0
-        ? <div style={{ color: "#555", textAlign: "center", padding: 24 }}>No bets found.</div>
-        : filtered.map(b => <BetCard key={b.id} bet={b} />)}
-    </>
+    </div>
   );
 }
 
@@ -402,46 +786,37 @@ export default function App() {
   const [bets, setBets] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState("feed");
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState(null);
+  const [leagues, setLeagues] = useState([]);
+  const [selectedLeague, setSelectedLeague] = useState(null);
+  const [leagueMembers, setLeagueMembers] = useState([]);
+  const [allMyMemberships, setAllMyMemberships] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
 
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
   }, []);
 
-  // Listen for auth state changes
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const snap = await getDoc(doc(db, "users", firebaseUser.uid));
-        if (snap.exists()) setCurrentUser({ id: firebaseUser.uid, ...snap.data() });
+    return onAuthStateChanged(auth, async fu => {
+      if (fu) {
+        const snap = await getDoc(doc(db, "users", fu.uid));
+        if (snap.exists()) setCurrentUser({ id: fu.uid, ...snap.data() });
       } else {
         setCurrentUser(null);
+        setSelectedLeague(null);
       }
       setAuthReady(true);
     });
-    return unsub;
   }, []);
 
-  // Real-time users listener
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "users"), snap => {
-      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    return unsub;
+    return onSnapshot(collection(db, "users"), snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
   }, []);
 
-  // Real-time bets listener
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, "bets"), snap => {
-      setBets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    return unsub;
-  }, []);
-
-  // Keep currentUser in sync with live users data
   useEffect(() => {
     if (currentUser) {
       const updated = users.find(u => u.id === currentUser.id);
@@ -449,13 +824,69 @@ export default function App() {
     }
   }, [users]);
 
-  const getUser = id => users.find(u => u.id === id);
+  useEffect(() => {
+    return onSnapshot(collection(db, "leagues"), snap => setLeagues(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+  }, []);
 
-  const myBets = bets.filter(b =>
-    b.type === "1v1"
-      ? b.creator === currentUser?.id || b.opponent === currentUser?.id
-      : b.participants?.some(p => p.userId === currentUser?.id) || b.creator === currentUser?.id
+  // Keep selectedLeague in sync
+  useEffect(() => {
+    if (selectedLeague) {
+      const updated = leagues.find(l => l.id === selectedLeague.id);
+      if (updated) setSelectedLeague(updated);
+    }
+  }, [leagues]);
+
+  // My memberships across all leagues (for lobby)
+  useEffect(() => {
+    if (!currentUser) return;
+    return onSnapshot(
+      query(collection(db, "leagueMembers"), where("userId", "==", currentUser.id)),
+      snap => setAllMyMemberships(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+  }, [currentUser?.id]);
+
+  // Members of selected league
+  useEffect(() => {
+    if (!selectedLeague) { setLeagueMembers([]); return; }
+    return onSnapshot(
+      query(collection(db, "leagueMembers"), where("leagueId", "==", selectedLeague.id)),
+      snap => setLeagueMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+  }, [selectedLeague?.id]);
+
+  // Bets for selected league
+  useEffect(() => {
+    if (!selectedLeague) { setBets([]); return; }
+    return onSnapshot(
+      query(collection(db, "bets"), where("leagueId", "==", selectedLeague.id)),
+      snap => setBets(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+  }, [selectedLeague?.id]);
+
+  // Announcements for selected league
+  useEffect(() => {
+    if (!selectedLeague) { setAnnouncements([]); return; }
+    return onSnapshot(
+      query(collection(db, "announcements"), where("leagueId", "==", selectedLeague.id)),
+      snap => setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt))
+    );
+  }, [selectedLeague?.id]);
+
+  const getUser = id => users.find(u => u.id === id);
+  const getMember = uid => leagueMembers.find(m => m.userId === uid);
+  const myMember = getMember(currentUser?.id);
+  const myLeagues = leagues.filter(l => allMyMemberships.some(m => m.leagueId === l.id));
+
+  const isCommissioner = selectedLeague && (
+    selectedLeague.commissionerId === currentUser?.id ||
+    selectedLeague.coCommissionerIds?.includes(currentUser?.id)
   );
+
+  const myBets = bets.filter(b => {
+    if (b.type === "1v1") return b.creator === currentUser?.id || b.opponent === currentUser?.id;
+    if (b.type === "pot") return b.participants?.some(p => p.userId === currentUser?.id) || b.creator === currentUser?.id;
+    return b.creator === currentUser?.id;
+  });
 
   const pendingActions = myBets.filter(b =>
     (b.status === "pending_acceptance" && b.opponent === currentUser?.id) ||
@@ -464,17 +895,47 @@ export default function App() {
   );
 
   // ── Bet Actions ──
-  const acceptBet = id => updateDoc(doc(db, "bets", id), { status: "active" }).then(() => showToast("Bet accepted! ⚔️"));
-  const declineBet = id => deleteDoc(doc(db, "bets", id)).then(() => showToast("Bet declined."));
+  const acceptBet = async id => {
+    const bet = bets.find(b => b.id === id);
+    const amt = bet.amount || 0;
+    if (amt > (myMember?.monies ?? 0)) return showToast(`Not enough 💰 Monies (have ${myMember?.monies ?? 0})`, "error");
+    if (amt > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${currentUser.id}`), { monies: increment(-amt) });
+    await updateDoc(doc(db, "bets", id), { status: "active" });
+    showToast("Bet accepted! 🤝");
+  };
+
+  const declineBet = async id => {
+    const bet = bets.find(b => b.id === id);
+    if ((bet.amount || 0) > 0) {
+      await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${bet.creator}`), { monies: increment(bet.amount) });
+    }
+    await deleteDoc(doc(db, "bets", id));
+    showToast("Bet declined.");
+  };
+
+  const claimAnyAction = async id => {
+    const bet = bets.find(b => b.id === id);
+    const amt = bet.amount || 0;
+    if (amt > (myMember?.monies ?? 0)) return showToast(`Not enough 💰 Monies (have ${myMember?.monies ?? 0})`, "error");
+    if (amt > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${currentUser.id}`), { monies: increment(-amt) });
+    await updateDoc(doc(db, "bets", id), { status: "pending_acceptance", opponent: currentUser.id, anyAction: false });
+    await acceptBet(id);
+  };
+
   const claimWin = id => updateDoc(doc(db, "bets", id), { status: "claimed", claimedBy: currentUser.id }).then(() => showToast("Win claimed! Waiting for confirmation..."));
 
   const confirmWin = async id => {
     const bet = bets.find(b => b.id === id);
-    const wId = bet.claimedBy, lId = bet.creator === wId ? bet.opponent : bet.creator;
+    const wId = bet.claimedBy;
+    const lId = bet.creator === wId ? bet.opponent : bet.creator;
+    const amt = bet.amount || 0;
     await updateDoc(doc(db, "bets", id), { status: "settled", winner: wId, paidStatus: "unpaid" });
     await updateDoc(doc(db, "users", wId), { wins: (getUser(wId)?.wins || 0) + 1 });
     await updateDoc(doc(db, "users", lId), { losses: (getUser(lId)?.losses || 0) + 1 });
-    showToast("Bet settled! Now pay up 💸");
+    if (amt > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${wId}`), { monies: increment(amt * 2), wins: increment(1) });
+    else await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${wId}`), { wins: increment(1) });
+    await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${lId}`), { losses: increment(1) });
+    showToast("Bet settled! 💰 Monies transferred!");
   };
 
   const disputeClaim = id => updateDoc(doc(db, "bets", id), { status: "active", claimedBy: null }).then(() => showToast("Claim disputed."));
@@ -502,6 +963,9 @@ export default function App() {
       for (const p of bet.participants) {
         if (p.userId !== wId) await updateDoc(doc(db, "users", p.userId), { losses: (getUser(p.userId)?.losses || 0) + 1 });
       }
+      const totalPot = bet.participants.reduce((s, p) => s + (p.amount || 0), 0);
+      if (totalPot > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${wId}`), { monies: increment(totalPot), wins: increment(1) });
+      else await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${wId}`), { wins: increment(1) });
     } else {
       await updateDoc(doc(db, "bets", betId), { resolveVotes: nv, status: "resolve_voting" });
     }
@@ -509,52 +973,82 @@ export default function App() {
   };
 
   // ── BetCard ──
-  const BetCard = ({ bet }) => {
+  const BetCard = ({ bet, inFeed }) => {
     const isCreator = bet.creator === currentUser.id;
     const isWinner = bet.winner === currentUser.id;
-    const opp = bet.type === "1v1" ? getUser(bet.creator === currentUser.id ? bet.opponent : bet.creator) : null;
+    const creator = getUser(bet.creator);
+    const opp = bet.type === "1v1" ? getUser(isCreator ? bet.opponent : bet.creator) : null;
     const winner = getUser(bet.winner);
-    const statusColor = { pending_acceptance: "#f59e0b", active: "#22c55e", claimed: "#f59e0b", settled: "#6b7280", resolve_voting: "#f59e0b" }[bet.status] || "#aaa";
-    const statusLabel = { pending_acceptance: "Pending", active: "Active", claimed: "Claimed", settled: "Settled", resolve_voting: "Voting" }[bet.status];
+    const isOpen = bet.anyAction && bet.status === "open";
+    const accent = selectedLeague?.themeColor || BLUE;
+
+    const statusColor = {
+      pending_acceptance: "#f59e0b", active: "#22c55e", claimed: "#f59e0b",
+      settled: "#6b7280", resolve_voting: "#f59e0b", open: accent,
+    }[bet.status] || "#aaa";
+    const statusLabel = {
+      pending_acceptance: "Pending", active: "Active", claimed: "Claimed",
+      settled: "Settled", resolve_voting: "Voting", open: "Any Action?",
+    }[bet.status];
 
     return (
-      <Card>
+      <Card style={{ borderColor: isOpen ? accent : "#444", borderWidth: isOpen ? 2 : 1 }}>
+        {isOpen && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: accent, display: "inline-block", animation: "pulse 1s infinite" }} />
+            <span style={{ color: accent, fontWeight: 800, fontSize: 12, letterSpacing: 1 }}>⚡ ANY ACTION? — UNCLAIMED</span>
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {bet.type === "pot" ? <span style={{ fontSize: 20 }}>🪣</span> : <Avatar name={opp?.username} avatarId={opp?.avatarId} size={32} />}
+            {inFeed
+              ? <Avatar name={creator?.username} avatarId={creator?.avatarId} size={28} />
+              : (bet.type === "pot" ? <span style={{ fontSize: 20 }}>🪣</span> : <Avatar name={opp?.username} avatarId={opp?.avatarId} size={32} />)
+            }
             <div>
-              <div style={{ color: TTU_WHITE, fontWeight: 700, fontSize: 14 }}>
-                {bet.type === "1v1" ? `vs ${opp?.username}${opp?.dishonorable ? " 🏴" : ""}` : bet.description}
+              <div style={{ color: WHITE, fontWeight: 700, fontSize: 14 }}>
+                {inFeed
+                  ? `${creator?.username}${bet.type === "1v1" && bet.opponent ? ` vs ${getUser(bet.opponent)?.username}` : ""}`
+                  : (bet.type === "1v1" ? `vs ${opp?.username || "?"}${opp?.dishonorable ? " 🏴" : ""}` : bet.description)}
               </div>
-              {bet.type === "1v1" && <div style={{ color: "#aaa", fontSize: 12 }}>{bet.description}</div>}
+              <div style={{ color: "#aaa", fontSize: 12 }}>{bet.description}</div>
             </div>
           </div>
-          <span style={{ color: statusColor, fontSize: 11, fontWeight: 700, background: statusColor + "22", padding: "3px 8px", borderRadius: 4 }}>{statusLabel}</span>
+          <span style={{ color: statusColor, fontSize: 11, fontWeight: 700, background: statusColor + "22", padding: "3px 8px", borderRadius: 4, flexShrink: 0 }}>{statusLabel}</span>
         </div>
-        <div style={{ display: "flex", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+
+        <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
           {bet.stakes && <span style={{ color: "#aaa", fontSize: 12 }}>📋 {bet.stakes}</span>}
-          {bet.amount > 0 && <span style={{ color: TTU_RED, fontSize: 12, fontWeight: 700 }}>💵 ${bet.amount}</span>}
+          {bet.amount > 0 && <span style={{ color: accent, fontSize: 12, fontWeight: 700 }}>💰 {bet.amount} Monies</span>}
           {bet.deadline && <span style={{ color: "#aaa", fontSize: 12 }}>📅 {bet.deadline}</span>}
         </div>
+
         {bet.type === "pot" && (
           <div style={{ background: "#111", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
             {bet.participants?.map(p => {
               const u = getUser(p.userId);
               return (
-                <div key={p.userId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: TTU_WHITE, marginBottom: 2 }}>
+                <div key={p.userId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: WHITE, marginBottom: 2 }}>
                   <span>{u?.username}{u?.dishonorable ? " 🏴" : ""}</span>
-                  <span style={{ color: p.paid ? "#22c55e" : "#f59e0b" }}>${p.amount} {p.paid ? "✓" : "pending"}</span>
+                  <span style={{ color: p.paid ? "#22c55e" : "#f59e0b" }}>💰 {p.amount} {p.paid ? "✓" : "pending"}</span>
                 </div>
               );
             })}
-            <div style={{ color: TTU_RED, fontWeight: 700, fontSize: 13, marginTop: 6 }}>Total Pot: ${bet.participants?.reduce((s, p) => s + p.amount, 0)}</div>
+            <div style={{ color: accent, fontWeight: 700, fontSize: 13, marginTop: 6 }}>
+              Pot: 💰 {bet.participants?.reduce((s, p) => s + (p.amount || 0), 0)} Monies
+            </div>
           </div>
         )}
+
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {bet.status === "pending_acceptance" && !isCreator && (
+          {isOpen && !isCreator && <Btn small onClick={() => claimAnyAction(bet.id)}>⚡ I'll Take That!</Btn>}
+          {isOpen && isCreator && <span style={{ color: "#aaa", fontSize: 12 }}>Waiting for someone to claim...</span>}
+          {bet.status === "pending_acceptance" && !isCreator && bet.opponent === currentUser.id && (
             <><Btn small onClick={() => acceptBet(bet.id)}>Accept ✅</Btn><Btn small variant="danger" onClick={() => declineBet(bet.id)}>Decline ✗</Btn></>
           )}
-          {bet.type === "1v1" && bet.status === "active" && <Btn small onClick={() => claimWin(bet.id)}>Claim Win 🏆</Btn>}
+          {bet.type === "1v1" && bet.status === "active" && (isCreator || bet.opponent === currentUser.id) && (
+            <Btn small onClick={() => claimWin(bet.id)}>Claim Win 🏆</Btn>
+          )}
           {bet.status === "claimed" && bet.claimedBy !== currentUser.id && (
             <><Btn small variant="success" onClick={() => confirmWin(bet.id)}>Confirm ✅</Btn><Btn small variant="danger" onClick={() => disputeClaim(bet.id)}>Dispute ⚠️</Btn></>
           )}
@@ -563,7 +1057,7 @@ export default function App() {
             <><Btn small variant="success" onClick={() => markPaid(bet.id)}>Mark Paid ✅</Btn><Btn small variant="danger" onClick={() => reportUnpaid(bet.id)}>Report Unpaid 🏴</Btn></>
           )}
           {bet.status === "settled" && bet.paidStatus === "paid" && <Badge label="✅ PAID" color="#1a7a1a" small />}
-          {bet.status === "settled" && bet.reportedUnpaid && <Badge label="🏴 UNPAID — DISHONORABLE" color="#8b0000" small />}
+          {bet.status === "settled" && bet.reportedUnpaid && <Badge label="🏴 UNPAID" color="#8b0000" small />}
           {bet.type === "pot" && (bet.status === "active" || bet.status === "resolve_voting") && isCreator && (
             <Btn small variant="outline" onClick={() => updateDoc(doc(db, "bets", bet.id), { status: "resolve_voting" })}>Start Vote 🗳️</Btn>
           )}
@@ -577,121 +1071,203 @@ export default function App() {
           )}
           {bet.status === "settled" && winner && (
             <div style={{ width: "100%", marginTop: 4 }}>
-              {bet.type === "pot" && <Badge label={`🏆 Winner: ${winner.username}`} color={TTU_RED} small />}
+              {bet.type === "pot" && <Badge label={`🏆 Winner: ${winner.username}`} color={accent} small />}
               <div style={{ color: "#aaa", fontSize: 11, marginTop: 6, marginBottom: 2 }}>Pay {winner.username} via:</div>
               {[["Venmo", winner.venmo], ["CashApp", winner.cashapp], ["Zelle", winner.zelle]].filter(([, v]) => v).map(([l, v]) => (
-                <span key={l} style={{ color: TTU_WHITE, fontSize: 11, background: "#111", borderRadius: 4, padding: "2px 7px", marginRight: 4 }}>{l}: {v}</span>
+                <span key={l} style={{ color: WHITE, fontSize: 11, background: "#111", borderRadius: 4, padding: "2px 7px", marginRight: 4 }}>{l}: {v}</span>
               ))}
             </div>
           )}
         </div>
+
+        <ReactionBar betId={bet.id} currentUserId={currentUser.id} />
+        <CommentSection betId={bet.id} currentUser={currentUser} users={users} />
       </Card>
     );
   };
 
+  // ── Loading / Auth gates ──
   if (!authReady) return (
-    <div style={{ minHeight: "100vh", background: TTU_DARK, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
-      <div style={{ fontSize: 48 }}>🔫</div>
-      <div style={{ color: TTU_RED, fontWeight: 900, fontSize: 24, letterSpacing: 2 }}>FRIENDLY BETS</div>
+    <div style={{ minHeight: "100vh", background: DARK, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
+      <img src={logo} alt="Bro-Bets" style={{ width: 160 }} />
       <div style={{ color: "#aaa", fontSize: 14 }}>Loading...</div>
     </div>
   );
 
   if (!currentUser) return <LoginPage showToast={showToast} />;
 
-  const sorted = [...users].sort((a, b) => b.wins - a.wins);
-  const activeBets = myBets.filter(b => ["active","pending_acceptance","claimed","resolve_voting"].includes(b.status));
+  if (!selectedLeague) return (
+    <LeagueLobby currentUser={currentUser} showToast={showToast} myLeagues={myLeagues} onSelectLeague={l => { setSelectedLeague(l); setPage("feed"); }} />
+  );
+
+  const accent = selectedLeague.themeColor || BLUE;
+  const sortedMembers = [...leagueMembers].sort((a, b) => (b.monies ?? 0) - (a.monies ?? 0));
+  const openBets = bets.filter(b => b.anyAction && b.status === "open");
+  const feedBets = [...bets].sort((a, b) => b.createdAt - a.createdAt).filter(b => !(b.anyAction && b.status === "open"));
+  const pinnedAnnouncements = announcements.filter(a => a.pinned);
 
   return (
-    <div style={{ background: TTU_DARK, minHeight: "100vh", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column" }}>
+    <div style={{ background: DARK, minHeight: "100vh", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column" }}>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}`}</style>
+
       {toast && (
-        <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", background: toast.type === "error" ? "#8b0000" : "#1a7a1a", color: TTU_WHITE, padding: "10px 20px", borderRadius: 8, fontWeight: 700, zIndex: 200, fontSize: 14, whiteSpace: "nowrap" }}>
+        <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", background: toast.type === "error" ? "#8b0000" : "#1a7a1a", color: WHITE, padding: "10px 20px", borderRadius: 8, fontWeight: 700, zIndex: 300, fontSize: 14, maxWidth: "90vw", textAlign: "center" }}>
           {toast.msg}
         </div>
       )}
-      {modal?.type === "create" && <CreateBetModal users={users} currentUser={currentUser} onClose={() => setModal(null)} showToast={showToast} />}
-      {modal?.type === "profile" && (
-        <ProfileModal user={users.find(u => u.id === modal.user.id) || modal.user} currentUser={currentUser} bets={bets} onClose={() => setModal(null)} showToast={showToast} />
-      )}
+
+      {modal?.type === "create" && <CreateBetModal users={users} currentUser={currentUser} league={selectedLeague} myMember={myMember} onClose={() => setModal(null)} showToast={showToast} />}
+      {modal?.type === "profile" && <ProfileModal user={users.find(u => u.id === modal.user.id) || modal.user} currentUser={currentUser} bets={bets} memberData={getMember(modal.user.id)} onClose={() => setModal(null)} showToast={showToast} />}
+      {modal?.type === "commissioner" && <CommissionerDashboard league={selectedLeague} currentUser={currentUser} members={leagueMembers} users={users} onClose={() => setModal(null)} showToast={showToast} />}
 
       {/* Nav */}
-      <div style={{ background: "#111", borderBottom: `3px solid ${TTU_RED}`, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 50 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 20 }}>🔫</span>
-          <span style={{ color: TTU_RED, fontWeight: 900, fontSize: 16, letterSpacing: 1 }}>FRIENDLY BETS</span>
+      <div style={{ background: DEEP, borderBottom: `3px solid ${accent}`, padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 50 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }} onClick={() => setSelectedLeague(null)}>
+          <span style={{ fontSize: 20 }}>{selectedLeague.emoji}</span>
+          <div>
+            <div style={{ color: accent, fontWeight: 900, fontSize: 14, letterSpacing: 1 }}>{selectedLeague.name}</div>
+            <div style={{ color: "#444", fontSize: 9, letterSpacing: 1 }}>BRO-BETS · tap to switch</div>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {pendingActions.length > 0 && <span style={{ background: TTU_RED, color: TTU_WHITE, borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{pendingActions.length}</span>}
-          <div style={{ cursor: "pointer" }} onClick={() => setModal({ type: "profile", user: currentUser })}><Avatar name={currentUser.username} avatarId={currentUser.avatarId} size={34} /></div>
+          {myMember != null && (
+            <span style={{ color: accent, fontWeight: 800, fontSize: 13, background: accent + "22", padding: "4px 8px", borderRadius: 6 }}>
+              💰 {myMember.monies}
+            </span>
+          )}
+          {pendingActions.length > 0 && (
+            <span style={{ background: "#f59e0b", color: DEEP, borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900 }}>
+              {pendingActions.length}
+            </span>
+          )}
+          <div style={{ cursor: "pointer" }} onClick={() => setModal({ type: "profile", user: currentUser })}>
+            <Avatar name={currentUser.username} avatarId={currentUser.avatarId} size={34} />
+          </div>
+          {isCommissioner && <Btn variant="ghost" small onClick={() => setModal({ type: "commissioner" })}>⚙️</Btn>}
           <Btn variant="ghost" small onClick={() => signOut(auth)}>Out</Btn>
         </div>
       </div>
 
-      {/* Content */}
+      {/* Pages */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {page === "dashboard" && (
+
+        {page === "feed" && (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div>
-                <div style={{ color: TTU_WHITE, fontWeight: 800, fontSize: 20 }}>Hey, {currentUser.username}! 🔫</div>
-                <div style={{ color: currentUser.dishonorable ? "#ff4444" : "#aaa", fontSize: 13 }}>{currentUser.dishonorable ? "🏴 You have unpaid debts!" : "Wreck 'Em Tech!"}</div>
+            {selectedLeague.endDate && <CountdownTimer endDate={selectedLeague.endDate} />}
+
+            {pinnedAnnouncements.length > 0 && pinnedAnnouncements.map(a => (
+              <div key={a.id} style={{ background: accent + "18", border: `1px solid ${accent}`, borderRadius: 8, padding: "10px 14px", marginBottom: 10, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <span style={{ fontSize: 18 }}>📣</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: WHITE, fontSize: 13 }}>{a.text}</div>
+                  <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>Commissioner · {new Date(a.createdAt).toLocaleDateString()}</div>
+                </div>
+                {isCommissioner && (
+                  <Btn small variant="ghost" onClick={() => updateDoc(doc(db, "announcements", a.id), { pinned: false })} style={{ padding: "2px 6px" }}>✕</Btn>
+                )}
               </div>
-              <Btn onClick={() => setModal({ type: "create" })}>+ New Bet</Btn>
+            ))}
+
+            {openBets.length > 0 && (
+              <div style={{ marginBottom: 4 }}>
+                <div style={{ color: accent, fontWeight: 800, fontSize: 12, marginBottom: 8, letterSpacing: 1 }}>⚡ ANY ACTION? — OPEN BETS</div>
+                {openBets.map(b => <BetCard key={b.id} bet={b} inFeed />)}
+                <div style={{ borderTop: "1px solid #333", marginBottom: 14 }} />
+              </div>
+            )}
+
+            <div style={{ color: "#555", fontWeight: 700, fontSize: 11, marginBottom: 10, letterSpacing: 1 }}>LEAGUE FEED</div>
+            {feedBets.length === 0
+              ? <div style={{ color: "#555", textAlign: "center", padding: 32 }}>No bets yet. Create one! 💰</div>
+              : feedBets.map(b => <BetCard key={b.id} bet={b} inFeed />)
+            }
+          </>
+        )}
+
+        {page === "bets" && (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ color: WHITE, fontWeight: 800, fontSize: 20 }}>💰 My Bets</div>
+              <Btn small onClick={() => setModal({ type: "create" })}>+ New Bet</Btn>
             </div>
             {pendingActions.length > 0 && (
-              <Card style={{ borderColor: TTU_RED, borderWidth: 2 }}>
-                <div style={{ color: TTU_RED, fontWeight: 700, marginBottom: 8 }}>⚡ Action Required ({pendingActions.length})</div>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ color: "#f59e0b", fontWeight: 700, fontSize: 12, marginBottom: 8, letterSpacing: 1 }}>⚡ ACTION REQUIRED ({pendingActions.length})</div>
                 {pendingActions.map(b => <BetCard key={b.id} bet={b} />)}
-              </Card>
+                <div style={{ borderTop: "1px solid #333", marginBottom: 14 }} />
+              </div>
             )}
-            <div style={{ color: "#aaa", fontWeight: 700, fontSize: 13, marginBottom: 8, letterSpacing: 1 }}>ACTIVE BETS</div>
-            {activeBets.length === 0
-              ? <div style={{ color: "#555", textAlign: "center", padding: 24 }}>No active bets. Challenge a friend! ⚔️</div>
-              : activeBets.map(b => <BetCard key={b.id} bet={b} />)}
+            {myBets.filter(b => !pendingActions.find(p => p.id === b.id)).map(b => <BetCard key={b.id} bet={b} />)}
+            {myBets.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: 32 }}>No bets yet. Start one! 💰</div>}
           </>
         )}
-        {page === "bets" && <BetsPage myBets={myBets} setModal={setModal} BetCard={BetCard} />}
+
         {page === "leaderboard" && (
           <>
-            <div style={{ color: TTU_WHITE, fontWeight: 800, fontSize: 20, marginBottom: 16 }}>🏆 Leaderboard</div>
-            {sorted.length === 0
-              ? <div style={{ color: "#555", textAlign: "center", padding: 24 }}>No players yet.</div>
-              : sorted.map((u, i) => (
-                <Card key={u.id} style={{ borderColor: i === 0 ? TTU_RED : "#333" }} onClick={() => setModal({ type: "profile", user: u })}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ color: i === 0 ? TTU_RED : "#aaa", fontWeight: 900, fontSize: 20, width: 28 }}>#{i + 1}</span>
-                    <Avatar name={u.username} avatarId={u.avatarId} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ color: TTU_WHITE, fontWeight: 700 }}>{u.username}</span>
-                        {u.dishonorable && <Badge label="🏴 DISHONORABLE" color="#8b0000" small />}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ color: WHITE, fontWeight: 800, fontSize: 20 }}>🏆 Leaderboard</div>
+              {selectedLeague.endDate && <CountdownTimer endDate={selectedLeague.endDate} compact />}
+            </div>
+            {sortedMembers.length === 0
+              ? <div style={{ color: "#555", textAlign: "center", padding: 32 }}>No members yet.</div>
+              : sortedMembers.map((m, i) => {
+                const u = getUser(m.userId);
+                if (!u) return null;
+                const total = (m.wins || 0) + (m.losses || 0);
+                const winPct = total > 0 ? Math.round(m.wins / total * 100) : 0;
+                return (
+                  <Card key={m.userId} style={{ borderColor: i === 0 ? accent : "#444" }} onClick={() => setModal({ type: "profile", user: u })}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ color: i === 0 ? accent : "#666", fontWeight: 900, fontSize: 18, width: 26, flexShrink: 0 }}>#{i + 1}</span>
+                      <Avatar name={u.username} avatarId={u.avatarId} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span style={{ color: WHITE, fontWeight: 700 }}>{u.username}</span>
+                          {u.dishonorable && <Badge label="🏴" color="#8b0000" small />}
+                          {m.role !== "member" && <Badge label={m.role === "commissioner" ? "COMM" : "CO-COMM"} color={accent} small />}
+                        </div>
+                        <div style={{ color: "#aaa", fontSize: 12 }}>{m.wins || 0}W — {m.losses || 0}L · {winPct}% win rate</div>
                       </div>
-                      <div style={{ color: "#aaa", fontSize: 12 }}>{u.wins}W — {u.losses}L · {u.wins + u.losses > 0 ? Math.round(u.wins / (u.wins + u.losses) * 100) : 0}% win rate</div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ color: accent, fontWeight: 900, fontSize: 18 }}>💰 {m.monies ?? 0}</div>
+                        {i === 0 && <div style={{ fontSize: 16 }}>👑</div>}
+                      </div>
                     </div>
-                    {i === 0 && <span style={{ fontSize: 22 }}>👑</span>}
-                  </div>
-                </Card>
-              ))}
+                  </Card>
+                );
+              })}
           </>
         )}
+
         {page === "friends" && (
           <>
-            <div style={{ color: TTU_WHITE, fontWeight: 800, fontSize: 20, marginBottom: 16 }}>👥 Friends</div>
-            {users.filter(u => u.id !== currentUser.id).length === 0
-              ? <div style={{ color: "#555", textAlign: "center", padding: 24 }}>No other users yet. Share the app with your crew!</div>
-              : users.filter(u => u.id !== currentUser.id).map(u => {
-                const h2h = bets.filter(b => b.type === "1v1" && ((b.creator === currentUser.id && b.opponent === u.id) || (b.creator === u.id && b.opponent === currentUser.id)) && b.status === "settled");
+            <div style={{ color: WHITE, fontWeight: 800, fontSize: 20, marginBottom: 14 }}>👥 Bros</div>
+            <div style={{ background: SECTION, borderRadius: 8, padding: "10px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+              <div>
+                <div style={{ color: "#aaa", fontSize: 11, fontWeight: 600 }}>INVITE CODE</div>
+                <div style={{ color: WHITE, fontWeight: 900, fontSize: 20, letterSpacing: 3 }}>{selectedLeague.inviteCode}</div>
+              </div>
+              <div style={{ flex: 1 }} />
+              <div style={{ color: "#555", fontSize: 11 }}>Share to invite Bros</div>
+            </div>
+            {leagueMembers.filter(m => m.userId !== currentUser.id).length === 0
+              ? <div style={{ color: "#555", textAlign: "center", padding: 32 }}>No other members yet. Share the invite code!</div>
+              : leagueMembers.filter(m => m.userId !== currentUser.id).map(m => {
+                const u = getUser(m.userId);
+                if (!u) return null;
+                const h2h = bets.filter(b => b.type === "1v1" && b.status === "settled" &&
+                  ((b.creator === currentUser.id && b.opponent === u.id) || (b.creator === u.id && b.opponent === currentUser.id)));
                 const myW = h2h.filter(b => b.winner === currentUser.id).length;
                 return (
-                  <Card key={u.id} onClick={() => setModal({ type: "profile", user: u })}>
+                  <Card key={m.userId} onClick={() => setModal({ type: "profile", user: u })}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <Avatar name={u.username} avatarId={u.avatarId} />
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ color: TTU_WHITE, fontWeight: 700 }}>{u.username}</span>
+                          <span style={{ color: WHITE, fontWeight: 700 }}>{u.username}</span>
                           {u.dishonorable && <Badge label="🏴" color="#8b0000" small />}
                         </div>
-                        <div style={{ color: "#aaa", fontSize: 12 }}>H2H: {myW}W — {h2h.length - myW}L vs you</div>
+                        <div style={{ color: "#aaa", fontSize: 12 }}>H2H: {myW}W — {h2h.length - myW}L · 💰 {m.monies ?? 0}</div>
                       </div>
                       <Btn small onClick={e => { e.stopPropagation(); setModal({ type: "create" }); }}>Bet</Btn>
                     </div>
@@ -703,9 +1279,10 @@ export default function App() {
       </div>
 
       {/* Tab Bar */}
-      <div style={{ background: "#111", borderTop: "1px solid #333", display: "flex", position: "sticky", bottom: 0, zIndex: 50 }}>
-        {[["dashboard","🏠 Home"],["bets","⚔️ Bets"],["leaderboard","🏆 Board"],["friends","👥 Friends"]].map(([id, label]) => (
-          <button key={id} onClick={() => setPage(id)} style={{ flex: 1, background: "none", border: "none", color: page === id ? TTU_RED : "#666", padding: "12px 0", fontSize: 12, fontWeight: 700, cursor: "pointer", borderTop: page === id ? `2px solid ${TTU_RED}` : "2px solid transparent" }}>
+      <div style={{ background: DEEP, borderTop: "1px solid #222", display: "flex", position: "sticky", bottom: 0, zIndex: 50 }}>
+        {[["feed", "📣 Feed"], ["bets", "💰 Bets"], ["leaderboard", "🏆 Board"], ["friends", "👥 Bros"]].map(([id, label]) => (
+          <button key={id} onClick={() => setPage(id)}
+            style={{ flex: 1, background: "none", border: "none", color: page === id ? accent : "#555", padding: "12px 0", fontSize: 11, fontWeight: 700, cursor: "pointer", borderTop: page === id ? `2px solid ${accent}` : "2px solid transparent", letterSpacing: 0.5 }}>
             {label}
           </button>
         ))}
