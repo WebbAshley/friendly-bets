@@ -42,7 +42,8 @@ const sendNotif = async (toUserId, body) => {
       toUserId, title: "Bro-Bets 👑", body,
       icon: "/logo.svg", createdAt: Date.now(), read: false,
     });
-  } catch {}
+    console.log("[FCM] notification queued for", toUserId, "→", body);
+  } catch (e) { console.error("[FCM] sendNotif failed:", e); }
 };
 
 // ── Colors ────────────────────────────────────────────────
@@ -844,14 +845,17 @@ export default function App() {
   }, []);
 
   const initFCM = async uid => {
-    if (!messaging) return;
+    if (!messaging) { console.warn("[FCM] messaging not initialized"); return; }
     try {
       const permission = await Notification.requestPermission();
+      console.log("[FCM] permission:", permission);
       if (permission !== "granted") return;
       const swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+      console.log("[FCM] service worker registered:", swReg.scope);
       const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
+      console.log("[FCM] token:", token ? token.slice(0, 20) + "…" : "none");
       if (token) await updateDoc(doc(db, "users", uid), { fcmToken: token });
-    } catch {}
+    } catch (e) { console.error("[FCM] init failed:", e); }
   };
 
   useEffect(() => {
