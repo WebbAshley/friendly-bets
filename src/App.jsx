@@ -1,6 +1,6 @@
 // App.jsx — Bro-Bets (Firebase Version)
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import logo from "./assets/logo.svg";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
@@ -9,6 +9,7 @@ import {
   updateDoc, deleteDoc, addDoc, getDocs, query, where,
   increment, arrayUnion, arrayRemove,
 } from "firebase/firestore";
+import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCM_zcCiYczoUJ5A4L4p3BwWJUlPesxQ9E",
@@ -22,6 +23,27 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
+
+// ── FCM ───────────────────────────────────────────────────
+// Get your VAPID key: Firebase Console → Project Settings →
+// Cloud Messaging → Web Push certificates → Generate key pair
+const VAPID_KEY = "BJOGIeiqXKUzcTCcFyUY0WfwfwPE6UVHhM-c0bQkhjMX2VrF6rsRSsWXysYArtHsT3gqWoiZoCKrhSkmhiCBZXo";
+
+let messaging = null;
+try { messaging = getMessaging(firebaseApp); } catch {}
+
+// Writes a notification record to Firestore.
+// A Cloud Function (functions/index.js) watches this collection
+// and sends the actual FCM push for background delivery.
+const sendNotif = async (toUserId, body) => {
+  if (!toUserId) return;
+  try {
+    await addDoc(collection(db, "notifications"), {
+      toUserId, title: "Bro-Bets 👑", body,
+      icon: "/logo.svg", createdAt: Date.now(), read: false,
+    });
+  } catch {}
+};
 
 // ── Colors ────────────────────────────────────────────────
 const BLUE    = "#0070C0";
@@ -122,13 +144,20 @@ const Sel = ({ label, value, onChange, children }) => (
 );
 
 // ── Countdown Timer ───────────────────────────────────────
-function CountdownTimer({ endDate, compact }) {
+function CountdownTimer({ endDate, compact, onNearEnd }) {
   const [left, setLeft] = useState(null);
+  const nearEndFired = useRef(false);
   useEffect(() => {
     const calc = () => {
       const diff = new Date(endDate) - Date.now();
       if (diff <= 0) { setLeft({ expired: true }); return; }
-      setLeft({ days: Math.floor(diff / 86400000), hours: Math.floor((diff % 86400000) / 3600000), mins: Math.floor((diff % 3600000) / 60000), secs: Math.floor((diff % 60000) / 1000) });
+      const d = Math.floor(diff / 86400000);
+      const h = Math.floor((diff % 86400000) / 3600000);
+      setLeft({ days: d, hours: h, mins: Math.floor((diff % 3600000) / 60000), secs: Math.floor((diff % 60000) / 1000) });
+      if (d === 0 && h < 24 && !nearEndFired.current && onNearEnd) {
+        nearEndFired.current = true;
+        onNearEnd();
+      }
     };
     calc();
     const id = setInterval(calc, 1000);
@@ -156,7 +185,7 @@ function CountdownTimer({ endDate, compact }) {
 }
 
 // ── Reactions ─────────────────────────────────────────────
-function ReactionBar({ betId, currentUserId }) {
+function ReactionBar({ betId, currentUser, betCreatorId }) {
   const [data, setData] = useState({});
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "reactions", betId), snap => setData(snap.exists() ? snap.data() : {}));
@@ -166,9 +195,16 @@ function ReactionBar({ betId, currentUserId }) {
   const toggle = async emoji => {
     const ref = doc(db, "reactions", betId);
     const list = data[emoji] || [];
-    if (list.includes(currentUserId)) await setDoc(ref, { [emoji]: arrayRemove(currentUserId) }, { merge: true });
-    else await setDoc(ref, { [emoji]: arrayUnion(currentUserId) }, { merge: true });
+    const adding = !list.includes(currentUser.id);
+    if (!adding) await setDoc(ref, { [emoji]: arrayRemove(currentUser.id) }, { merge: true });
+    else {
+      await setDoc(ref, { [emoji]: arrayUnion(currentUser.id) }, { merge: true });
+      if (betCreatorId && betCreatorId !== currentUser.id) {
+        await sendNotif(betCreatorId, `${emoji} ${currentUser.username} reacted to your bet!`);
+      }
+    }
   };
+  const currentUserId = currentUser.id;
 
   return (
     <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
@@ -187,7 +223,7 @@ function ReactionBar({ betId, currentUserId }) {
 }
 
 // ── Comments ──────────────────────────────────────────────
-function CommentSection({ betId, currentUser, users }) {
+function CommentSection({ betId, currentUser, users, betCreatorId }) {
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
@@ -203,6 +239,9 @@ function CommentSection({ betId, currentUser, users }) {
   const send = async () => {
     if (!text.trim()) return;
     await addDoc(collection(db, "bets", betId, "comments"), { userId: currentUser.id, text: text.trim(), createdAt: Date.now() });
+    if (betCreatorId && betCreatorId !== currentUser.id) {
+      await sendNotif(betCreatorId, `💬 ${currentUser.username} talked trash on your bet!`);
+    }
     setText("");
   };
 
@@ -474,6 +513,9 @@ function CreateBetModal({ users, currentUser, league, myMember, onClose, showToa
       await updateDoc(doc(db, "leagueMembers", `${league.id}_${currentUser.id}`), { monies: increment(-amt) });
     }
     await addDoc(collection(db, "bets"), bet);
+    if (!form.anyAction && form.type === "1v1" && form.opponentId) {
+      await sendNotif(form.opponentId, `⚔️ ${currentUser.username} challenged you to a bet!`);
+    }
     onClose();
     showToast(form.anyAction ? "⚡ Any Action? posted to feed!" : "Bet created! 💰");
   };
@@ -670,6 +712,7 @@ function CommissionerDashboard({ league, currentUser, members, users, onClose, s
     const amt = parseInt(giftForm.amount);
     if (isNaN(amt)) return showToast("Invalid amount", "error");
     await updateDoc(doc(db, "leagueMembers", `${league.id}_${giftForm.userId}`), { monies: increment(amt) });
+    if (amt > 0) await sendNotif(giftForm.userId, `💰 Commissioner sent you ${amt} Monies!`);
     showToast(`${amt >= 0 ? "Gifted" : "Deducted"} 💰 ${Math.abs(amt)} Monies!`);
     setGiftForm({ userId: "", amount: "" });
   };
@@ -800,11 +843,23 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
+  const initFCM = async uid => {
+    if (!messaging) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") return;
+      const swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+      const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
+      if (token) await updateDoc(doc(db, "users", uid), { fcmToken: token });
+    } catch {}
+  };
+
   useEffect(() => {
     return onAuthStateChanged(auth, async fu => {
       if (fu) {
         const snap = await getDoc(doc(db, "users", fu.uid));
         if (snap.exists()) setCurrentUser({ id: fu.uid, ...snap.data() });
+        initFCM(fu.uid);
       } else {
         setCurrentUser(null);
         setSelectedLeague(null);
@@ -812,6 +867,35 @@ export default function App() {
       setAuthReady(true);
     });
   }, []);
+
+  // Show in-app notifications when the tab is open
+  useEffect(() => {
+    if (!currentUser) return;
+    let ready = false;
+    const unsub = onSnapshot(
+      query(collection(db, "notifications"), where("toUserId", "==", currentUser.id), where("read", "==", false)),
+      snap => {
+        if (!ready) { ready = true; return; }
+        snap.docChanges().forEach(change => {
+          if (change.type !== "added") return;
+          const { title, body, icon } = change.doc.data();
+          if (Notification.permission === "granted") new Notification(title, { body, icon });
+          updateDoc(change.doc.ref, { read: true });
+        });
+      }
+    );
+    return unsub;
+  }, [currentUser?.id]);
+
+  // Handle FCM foreground messages (when tab is focused)
+  useEffect(() => {
+    if (!messaging || !currentUser) return;
+    return onMessage(messaging, ({ notification }) => {
+      if (notification?.title && Notification.permission === "granted") {
+        new Notification(notification.title, { body: notification.body, icon: notification.icon });
+      }
+    });
+  }, [currentUser?.id]);
 
   useEffect(() => {
     return onSnapshot(collection(db, "users"), snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
@@ -901,6 +985,7 @@ export default function App() {
     if (amt > (myMember?.monies ?? 0)) return showToast(`Not enough 💰 Monies (have ${myMember?.monies ?? 0})`, "error");
     if (amt > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${currentUser.id}`), { monies: increment(-amt) });
     await updateDoc(doc(db, "bets", id), { status: "active" });
+    await sendNotif(bet.creator, `🤝 ${currentUser.username} accepted your bet challenge!`);
     showToast("Bet accepted! 🤝");
   };
 
@@ -919,10 +1004,17 @@ export default function App() {
     if (amt > (myMember?.monies ?? 0)) return showToast(`Not enough 💰 Monies (have ${myMember?.monies ?? 0})`, "error");
     if (amt > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${currentUser.id}`), { monies: increment(-amt) });
     await updateDoc(doc(db, "bets", id), { status: "pending_acceptance", opponent: currentUser.id, anyAction: false });
+    await sendNotif(bet.creator, `🤝 ${currentUser.username} took your open bet!`);
     await acceptBet(id);
   };
 
-  const claimWin = id => updateDoc(doc(db, "bets", id), { status: "claimed", claimedBy: currentUser.id }).then(() => showToast("Win claimed! Waiting for confirmation..."));
+  const claimWin = async id => {
+    const bet = bets.find(b => b.id === id);
+    const otherId = bet.creator === currentUser.id ? bet.opponent : bet.creator;
+    await updateDoc(doc(db, "bets", id), { status: "claimed", claimedBy: currentUser.id });
+    await sendNotif(otherId, `🏆 ${currentUser.username} claimed the win — confirm or dispute!`);
+    showToast("Win claimed! Waiting for confirmation...");
+  };
 
   const confirmWin = async id => {
     const bet = bets.find(b => b.id === id);
@@ -1080,8 +1172,8 @@ export default function App() {
           )}
         </div>
 
-        <ReactionBar betId={bet.id} currentUserId={currentUser.id} />
-        <CommentSection betId={bet.id} currentUser={currentUser} users={users} />
+        <ReactionBar betId={bet.id} currentUser={currentUser} betCreatorId={bet.creator} />
+        <CommentSection betId={bet.id} currentUser={currentUser} users={users} betCreatorId={bet.creator} />
       </Card>
     );
   };
@@ -1154,7 +1246,7 @@ export default function App() {
 
         {page === "feed" && (
           <>
-            {selectedLeague.endDate && <CountdownTimer endDate={selectedLeague.endDate} />}
+            {selectedLeague.endDate && <CountdownTimer endDate={selectedLeague.endDate} onNearEnd={() => sendNotif(currentUser.id, "⏱️ 24 hours left in the season! Place your bets!")} />}
 
             {pinnedAnnouncements.length > 0 && pinnedAnnouncements.map(a => (
               <div key={a.id} style={{ background: accent + "18", border: `1px solid ${accent}`, borderRadius: 8, padding: "10px 14px", marginBottom: 10, display: "flex", gap: 10, alignItems: "flex-start" }}>
