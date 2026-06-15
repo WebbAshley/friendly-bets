@@ -854,7 +854,10 @@ export default function App() {
       console.log("[FCM] service worker registered:", swReg.scope);
       const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
       console.log("[FCM] token:", token ? token.slice(0, 20) + "…" : "none");
-      if (token) await updateDoc(doc(db, "users", uid), { fcmToken: token });
+      if (token) {
+        await updateDoc(doc(db, "users", uid), { fcmToken: token });
+        console.log("[FCM] token saved to Firestore ✓");
+      }
     } catch (e) { console.error("[FCM] init failed:", e); }
   };
 

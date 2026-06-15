@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+
+  <!-- Background circle -->
+  <circle cx="200" cy="145" r="135" fill="#1c1c1e"/>
+  <circle cx="200" cy="145" r="135" fill="none" stroke="#0070C0" stroke-width="3"/>
+  <circle cx="200" cy="145" r="135" fill="none" stroke="#0070C0" stroke-width="1" opacity="0.25"/>
+
+  <!-- Crown base band -->
+  <rect x="65" y="175" width="270" height="50" rx="10" fill="#0070C0"/>
+  <rect x="65" y="198" width="270" height="27" rx="0" fill="#005090"/>
+  <rect x="65" y="198" width="270" height="7" rx="0" fill="#4dabf7" opacity="0.15"/>
+
+  <!-- Band diamonds -->
+  <polygon points="118,198 128,186 138,198 128,210" fill="#4dabf7" opacity="0.55"/>
+  <polygon points="168,198 178,186 188,198 178,210" fill="#4dabf7" opacity="0.55"/>
+  <polygon points="218,198 228,186 238,198 228,210" fill="#4dabf7" opacity="0.55"/>
+  <polygon points="268,198 278,186 288,198 278,210" fill="#4dabf7" opacity="0.55"/>
+
+  <!-- Crown spikes -->
+  <!-- Far left -->
+  <polygon points="75,177 100,95 125,177" fill="#0070C0"/>
+  <polygon points="100,95 107,118 93,118" fill="#005090"/>
+
+  <!-- Left -->
+  <polygon points="122,177 152,112 182,177" fill="#0070C0"/>
+  <polygon points="152,112 159,134 145,134" fill="#005090"/>
+
+  <!-- Center tall -->
+  <polygon points="172,177 200,62 228,177" fill="#0070C0"/>
+  <polygon points="200,62 207,88 193,88" fill="#005090"/>
+
+  <!-- Right -->
+  <polygon points="218,177 248,112 278,177" fill="#0070C0"/>
+  <polygon points="248,112 255,134 241,134" fill="#005090"/>
+
+  <!-- Far right -->
+  <polygon points="275,177 300,95 325,177" fill="#0070C0"/>
+  <polygon points="300,95 307,118 293,118" fill="#005090"/>
+
+  <!-- Gems on spike tips -->
+  <!-- Far left -->
+  <circle cx="100" cy="92" r="12" fill="#141414"/>
+  <circle cx="100" cy="92" r="7" fill="#0070C0"/>
+  <circle cx="97" cy="89" r="3" fill="#4dabf7"/>
+
+  <!-- Left -->
+  <circle cx="152" cy="109" r="12" fill="#141414"/>
+  <circle cx="152" cy="109" r="7" fill="#0070C0"/>
+  <circle cx="149" cy="106" r="3" fill="#4dabf7"/>
+
+  <!-- Center (biggest) -->
+  <circle cx="200" cy="59" r="15" fill="#141414"/>
+  <circle cx="200" cy="59" r="9" fill="#0070C0"/>
+  <circle cx="196" cy="55" r="4" fill="#4dabf7"/>
+
+  <!-- Right -->
+  <circle cx="248" cy="109" r="12" fill="#141414"/>
+  <circle cx="248" cy="109" r="7" fill="#0070C0"/>
+  <circle cx="245" cy="106" r="3" fill="#4dabf7"/>
+
+  <!-- Far right -->
+  <circle cx="300" cy="92" r="12" fill="#141414"/>
+  <circle cx="300" cy="92" r="7" fill="#0070C0"/>
+  <circle cx="297" cy="89" r="3" fill="#4dabf7"/>
+
+  <!-- BRO-BETS text -->
+  <text x="200" y="268" text-anchor="middle" font-family="Arial Black, sans-serif" font-weight="900" font-size="38" fill="#FFFFFF" letter-spacing="4">BRO-BETS</text>
+
+  <!-- Accent dots -->
+  <circle cx="68" cy="253" r="5" fill="#0070C0"/>
+  <circle cx="332" cy="253" r="5" fill="#0070C0"/>
+
+  <!-- Underline -->
+  <line x1="80" y1="276" x2="320" y2="276" stroke="#0070C0" stroke-width="2.5"/>
+
+</svg>
