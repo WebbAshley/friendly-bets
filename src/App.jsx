@@ -6,10 +6,11 @@ import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import {
   getFirestore, doc, setDoc, getDoc, collection, onSnapshot,
-  updateDoc, deleteDoc, addDoc, getDocs, query, where,
-  increment, arrayUnion, arrayRemove,
+  updateDoc, deleteDoc, addDoc, query, where, documentId,
+  arrayUnion, arrayRemove,
 } from "firebase/firestore";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCM_zcCiYczoUJ5A4L4p3BwWJUlPesxQ9E",
@@ -23,6 +24,12 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
+const functions = getFunctions(firebaseApp);
+
+// All Monies-moving / bet-lifecycle mutations run server-side as Cloud
+// Functions (see functions/index.js) so Firestore Security Rules can lock
+// clients out of writing those fields directly.
+const call = (name, data) => httpsCallable(functions, name)(data).then(r => r.data);
 
 // ── FCM ───────────────────────────────────────────────────
 // Get your VAPID key: Firebase Console → Project Settings →
@@ -90,8 +97,6 @@ const COMMISSIONER_SLIDES = [
   { emoji: "⏱️",  title: "Set the Countdown",        subtitle: "Set a season end date — the league locks when it hits zero" },
   { emoji: "🚀",  title: "Run It!",                  subtitle: null, btnLabel: "Let's Go Commissioner! 👑" },
 ];
-
-const genCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 
 // ── Shared UI ─────────────────────────────────────────────
 const Badge = ({ label, color, small }) => (
@@ -375,10 +380,10 @@ function LoginPage({ showToast }) {
     if (!sf.password || sf.password.length < 6) return showToast("Password must be 6+ characters", "error");
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "users"));
-      if (snap.docs.some(d => d.data().username.toLowerCase() === sf.username.toLowerCase())) {
-        showToast("Username taken", "error"); return;
-      }
+      // Username uniqueness is enforced by Auth itself: email is derived
+      // from username, so a taken username throws auth/email-already-in-use
+      // below. A pre-check Firestore read here can't run pre-auth under the
+      // new security rules (reads require isSignedIn()).
       const cred = await createUserWithEmailAndPassword(auth, `${sf.username.toLowerCase()}@brobets.app`, sf.password);
       await setDoc(doc(db, "users", cred.user.uid), {
         id: cred.user.uid, username: sf.username,
@@ -433,7 +438,7 @@ function LoginPage({ showToast }) {
 }
 
 // ── League Lobby ──────────────────────────────────────────
-function LeagueLobby({ currentUser, showToast, myLeagues, onSelectLeague, onLeagueCreated }) {
+function LeagueLobby({ showToast, myLeagues, onSelectLeague, onLeagueCreated }) {
   const [tab, setTab] = useState("my");
   const [cf, setCf] = useState({ name: "", emoji: "🏆", themeColor: BLUE, startingMonies: "1000", endDate: "" });
   const [joinCode, setJoinCode] = useState("");
@@ -443,26 +448,14 @@ function LeagueLobby({ currentUser, showToast, myLeagues, onSelectLeague, onLeag
     if (!cf.name.trim()) return showToast("League name required", "error");
     setLoading(true);
     try {
-      const inviteCode = genCode();
-      const ref = await addDoc(collection(db, "leagues"), {
-        name: cf.name.trim(), emoji: cf.emoji || "🏆",
-        inviteCode, themeColor: cf.themeColor || BLUE,
-        startingMonies: Number(cf.startingMonies) || 1000,
-        endDate: cf.endDate || "",
-        commissionerId: currentUser.id,
-        coCommissionerIds: [],
-        status: "active",
-        seasonEndBehavior: "reset",
-        createdAt: Date.now(),
-      });
-      await setDoc(doc(db, "leagueMembers", `${ref.id}_${currentUser.id}`), {
-        leagueId: ref.id, userId: currentUser.id, role: "commissioner",
-        monies: Number(cf.startingMonies) || 1000, wins: 0, losses: 0, joinedAt: Date.now(),
+      const { inviteCode } = await call("createLeague", {
+        name: cf.name.trim(), emoji: cf.emoji || "🏆", themeColor: cf.themeColor || BLUE,
+        startingMonies: Number(cf.startingMonies) || 1000, endDate: cf.endDate || "",
       });
       showToast(`"${cf.name}" created! Code: ${inviteCode}`);
       onLeagueCreated?.();
       setTab("my");
-    } catch { showToast("Failed to create league", "error"); }
+    } catch (e) { showToast(e.message || "Failed to create league", "error"); }
     finally { setLoading(false); }
   };
 
@@ -470,19 +463,10 @@ function LeagueLobby({ currentUser, showToast, myLeagues, onSelectLeague, onLeag
     if (!joinCode.trim()) return showToast("Enter an invite code", "error");
     setLoading(true);
     try {
-      const snap = await getDocs(query(collection(db, "leagues"), where("inviteCode", "==", joinCode.trim().toUpperCase())));
-      if (snap.empty) { showToast("Invalid invite code", "error"); return; }
-      const leagueDoc = snap.docs[0];
-      const league = { id: leagueDoc.id, ...leagueDoc.data() };
-      const memberRef = doc(db, "leagueMembers", `${league.id}_${currentUser.id}`);
-      if ((await getDoc(memberRef)).exists()) { showToast("Already in this league!", "error"); return; }
-      await setDoc(memberRef, {
-        leagueId: league.id, userId: currentUser.id, role: "member",
-        monies: league.startingMonies || 1000, wins: 0, losses: 0, joinedAt: Date.now(),
-      });
-      showToast(`Joined "${league.name}"! Let's Bet Bro! 🤝`);
+      const { name } = await call("joinLeague", { inviteCode: joinCode.trim().toUpperCase() });
+      showToast(`Joined "${name}"! Let's Bet Bro! 🤝`);
       setTab("my");
-    } catch { showToast("Failed to join league", "error"); }
+    } catch (e) { showToast(e.message || "Failed to join league", "error"); }
     finally { setLoading(false); }
   };
 
@@ -563,37 +547,16 @@ function CreateBetModal({ users, currentUser, league, myMember, onClose, showToa
     if (amt > balance) return showToast(`Not enough 💰 Monies (have ${balance})`, "error");
     if (!form.anyAction && form.type === "1v1" && !form.opponentId) return showToast("Select an opponent", "error");
 
-    const bet = {
-      leagueId: league.id, type: form.anyAction ? "1v1" : form.type,
-      creator: currentUser.id, description: form.description,
-      stakes: form.stakes, amount: amt, deadline: form.deadline,
-      anyAction: form.anyAction,
-      status: form.anyAction ? "open" : (form.type === "1v1" ? "pending_acceptance" : "active"),
-      winner: null, createdAt: Date.now(),
-    };
-
-    if (!form.anyAction) {
-      if (form.type === "1v1") {
-        bet.opponent = form.opponentId; bet.paidStatus = null; bet.reportedUnpaid = false;
-      } else {
-        const ids = form.inviteIds.filter(Boolean);
-        bet.participants = [
-          { userId: currentUser.id, amount: amt, paid: true },
-          ...ids.map(id => ({ userId: id, amount: amt, paid: false }))
-        ];
-        bet.winType = form.winType; bet.resolveVotes = {};
-      }
-    }
-
-    if (amt > 0) {
-      await updateDoc(doc(db, "leagueMembers", `${league.id}_${currentUser.id}`), { monies: increment(-amt) });
-    }
-    await addDoc(collection(db, "bets"), bet);
-    if (!form.anyAction && form.type === "1v1" && form.opponentId) {
-      await sendNotif(form.opponentId, `⚔️ ${currentUser.username} challenged you to a bet!`);
-    }
-    onClose();
-    showToast(form.anyAction ? "⚡ Any Action? posted to feed!" : "Bet created! 💰");
+    try {
+      await call("createBet", {
+        leagueId: league.id, type: form.type, opponentId: form.opponentId,
+        description: form.description, stakes: form.stakes, amount: amt,
+        deadline: form.deadline, winType: form.winType, inviteIds: form.inviteIds,
+        anyAction: form.anyAction,
+      });
+      onClose();
+      showToast(form.anyAction ? "⚡ Any Action? posted to feed!" : "Bet created! 💰");
+    } catch (e) { showToast(e.message || "Failed to create bet", "error"); }
   };
 
   return (
@@ -671,11 +634,11 @@ function ProfileModal({ user, currentUser, bets, memberData, onClose, showToast 
   };
 
   const clearDishonorable = async betId => {
-    await updateDoc(doc(db, "bets", betId), { paidStatus: "paid", reportedUnpaid: false });
-    const newDebts = (user.dishonorableDebts || []).filter(d => d !== betId);
-    await updateDoc(doc(db, "users", currentUser.id), { dishonorableDebts: newDebts, dishonorable: newDebts.length > 0 });
-    showToast("Debt settled! Flag removed ✅");
-    onClose();
+    try {
+      await call("clearDishonorable", { betId });
+      showToast("Debt settled! Flag removed ✅");
+      onClose();
+    } catch (e) { showToast(e.message || "Failed to settle debt", "error"); }
   };
 
   return (
@@ -787,10 +750,11 @@ function CommissionerDashboard({ league, currentUser, members, users, onClose, s
     if (!giftForm.userId || !giftForm.amount) return showToast("Select member and amount", "error");
     const amt = parseInt(giftForm.amount);
     if (isNaN(amt)) return showToast("Invalid amount", "error");
-    await updateDoc(doc(db, "leagueMembers", `${league.id}_${giftForm.userId}`), { monies: increment(amt) });
-    if (amt > 0) await sendNotif(giftForm.userId, `💰 Commissioner sent you ${amt} Monies!`);
-    showToast(`${amt >= 0 ? "Gifted" : "Deducted"} 💰 ${Math.abs(amt)} Monies!`);
-    setGiftForm({ userId: "", amount: "" });
+    try {
+      await call("giftMonies", { leagueId: league.id, userId: giftForm.userId, amount: amt });
+      showToast(`${amt >= 0 ? "Gifted" : "Deducted"} 💰 ${Math.abs(amt)} Monies!`);
+      setGiftForm({ userId: "", amount: "" });
+    } catch (e) { showToast(e.message || "Failed to update Monies", "error"); }
   };
 
   const postAnnouncement = async () => {
@@ -810,14 +774,11 @@ function CommissionerDashboard({ league, currentUser, members, users, onClose, s
 
   const newSeason = async () => {
     if (!window.confirm(`Start new season? Monies will ${behavior === "reset" ? "reset to " + league.startingMonies : "carry over"}.`)) return;
-    for (const m of members) {
-      const update = { wins: 0, losses: 0 };
-      if (behavior === "reset") update.monies = league.startingMonies || 1000;
-      await updateDoc(doc(db, "leagueMembers", `${league.id}_${m.userId}`), update);
-    }
-    await updateDoc(doc(db, "leagues", league.id), { status: "active", endDate: "" });
-    showToast("New season started! 🏆");
-    onClose();
+    try {
+      await call("newSeason", { leagueId: league.id, behavior });
+      showToast("New season started! 🏆");
+      onClose();
+    } catch (e) { showToast(e.message || "Failed to start new season", "error"); }
   };
 
   return (
@@ -1003,9 +964,17 @@ export default function App() {
     }
   }, [users]);
 
+  // Security rules require leagues reads to be scoped to a known set of IDs
+  // (a list query over the whole collection can't be proven safe per-doc),
+  // so this is keyed off the membership list rather than querying everything.
   useEffect(() => {
-    return onSnapshot(collection(db, "leagues"), snap => setLeagues(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-  }, []);
+    const leagueIds = allMyMemberships.map(m => m.leagueId).sort();
+    if (leagueIds.length === 0) { setLeagues([]); return; }
+    return onSnapshot(
+      query(collection(db, "leagues"), where(documentId(), "in", leagueIds.slice(0, 30))),
+      snap => setLeagues(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+  }, [JSON.stringify(allMyMemberships.map(m => m.leagueId).sort())]);
 
   // Keep selectedLeague in sync
   useEffect(() => {
@@ -1074,89 +1043,71 @@ export default function App() {
   );
 
   // ── Bet Actions ──
+  // All of these now call atomic Cloud Functions instead of writing
+  // Firestore directly — security rules block client writes to bets/
+  // leagueMembers entirely. "Claim" (Any Action) and "Accept" (direct
+  // challenge) are merged server-side into a single acceptBet call, fixing
+  // a previous bug where claiming an open bet deducted Monies twice.
   const acceptBet = async id => {
-    const bet = bets.find(b => b.id === id);
-    const amt = bet.amount || 0;
-    if (amt > (myMember?.monies ?? 0)) return showToast(`Not enough 💰 Monies (have ${myMember?.monies ?? 0})`, "error");
-    if (amt > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${currentUser.id}`), { monies: increment(-amt) });
-    await updateDoc(doc(db, "bets", id), { status: "active" });
-    await sendNotif(bet.creator, `🤝 ${currentUser.username} accepted your bet challenge!`);
-    showToast("Bet accepted! 🤝");
+    try {
+      await call("acceptBet", { betId: id });
+      showToast("Bet accepted! 🤝");
+    } catch (e) { showToast(e.message || "Failed to accept bet", "error"); }
   };
 
   const declineBet = async id => {
-    const bet = bets.find(b => b.id === id);
-    if ((bet.amount || 0) > 0) {
-      await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${bet.creator}`), { monies: increment(bet.amount) });
-    }
-    await deleteDoc(doc(db, "bets", id));
-    showToast("Bet declined.");
-  };
-
-  const claimAnyAction = async id => {
-    const bet = bets.find(b => b.id === id);
-    const amt = bet.amount || 0;
-    if (amt > (myMember?.monies ?? 0)) return showToast(`Not enough 💰 Monies (have ${myMember?.monies ?? 0})`, "error");
-    if (amt > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${currentUser.id}`), { monies: increment(-amt) });
-    await updateDoc(doc(db, "bets", id), { status: "pending_acceptance", opponent: currentUser.id, anyAction: false });
-    await sendNotif(bet.creator, `🤝 ${currentUser.username} took your open bet!`);
-    await acceptBet(id);
+    try {
+      await call("declineBet", { betId: id });
+      showToast("Bet declined.");
+    } catch (e) { showToast(e.message || "Failed to decline bet", "error"); }
   };
 
   const claimWin = async id => {
-    const bet = bets.find(b => b.id === id);
-    const otherId = bet.creator === currentUser.id ? bet.opponent : bet.creator;
-    await updateDoc(doc(db, "bets", id), { status: "claimed", claimedBy: currentUser.id });
-    await sendNotif(otherId, `🏆 ${currentUser.username} claimed the win — confirm or dispute!`);
-    showToast("Win claimed! Waiting for confirmation...");
+    try {
+      await call("claimWin", { betId: id });
+      showToast("Win claimed! Waiting for confirmation...");
+    } catch (e) { showToast(e.message || "Failed to claim win", "error"); }
   };
 
   const confirmWin = async id => {
-    const bet = bets.find(b => b.id === id);
-    const wId = bet.claimedBy;
-    const lId = bet.creator === wId ? bet.opponent : bet.creator;
-    const amt = bet.amount || 0;
-    await updateDoc(doc(db, "bets", id), { status: "settled", winner: wId, paidStatus: "unpaid" });
-    await updateDoc(doc(db, "users", wId), { wins: (getUser(wId)?.wins || 0) + 1 });
-    await updateDoc(doc(db, "users", lId), { losses: (getUser(lId)?.losses || 0) + 1 });
-    if (amt > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${wId}`), { monies: increment(amt * 2), wins: increment(1) });
-    else await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${wId}`), { wins: increment(1) });
-    await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${lId}`), { losses: increment(1) });
-    showToast("Bet settled! 💰 Monies transferred!");
+    try {
+      await call("confirmWin", { betId: id });
+      showToast("Bet settled! 💰 Monies transferred!");
+    } catch (e) { showToast(e.message || "Failed to confirm win", "error"); }
   };
 
-  const disputeClaim = id => updateDoc(doc(db, "bets", id), { status: "active", claimedBy: null }).then(() => showToast("Claim disputed."));
-  const markPaid = id => updateDoc(doc(db, "bets", id), { paidStatus: "paid" }).then(() => showToast("Marked as paid! 🤝"));
+  const disputeClaim = async id => {
+    try {
+      await call("disputeClaim", { betId: id });
+      showToast("Claim disputed.");
+    } catch (e) { showToast(e.message || "Failed to dispute claim", "error"); }
+  };
+
+  const markPaid = async id => {
+    try {
+      await call("markPaid", { betId: id });
+      showToast("Marked as paid! 🤝");
+    } catch (e) { showToast(e.message || "Failed to mark as paid", "error"); }
+  };
 
   const reportUnpaid = async id => {
-    const bet = bets.find(b => b.id === id);
-    const debtorId = bet.creator === currentUser.id ? bet.opponent : bet.creator;
-    const debtor = getUser(debtorId);
-    await updateDoc(doc(db, "bets", id), { paidStatus: "unpaid", reportedUnpaid: true });
-    await updateDoc(doc(db, "users", debtorId), { dishonorable: true, dishonorableDebts: [...(debtor?.dishonorableDebts || []), id] });
-    showToast("Reported unpaid. 🏴 Flag applied.");
+    try {
+      await call("reportUnpaid", { betId: id });
+      showToast("Reported unpaid. 🏴 Flag applied.");
+    } catch (e) { showToast(e.message || "Failed to report unpaid", "error"); }
   };
 
   const votePotWinner = async (betId, winnerId) => {
-    const bet = bets.find(b => b.id === betId);
-    const nv = { ...bet.resolveVotes, [currentUser.id]: winnerId };
-    const tally = {};
-    Object.values(nv).forEach(v => tally[v] = (tally[v] || 0) + 1);
-    const majority = Object.entries(tally).find(([, c]) => c > bet.participants.length / 2);
-    if (majority) {
-      const wId = majority[0];
-      await updateDoc(doc(db, "bets", betId), { resolveVotes: nv, status: "settled", winner: wId });
-      await updateDoc(doc(db, "users", wId), { wins: (getUser(wId)?.wins || 0) + 1 });
-      for (const p of bet.participants) {
-        if (p.userId !== wId) await updateDoc(doc(db, "users", p.userId), { losses: (getUser(p.userId)?.losses || 0) + 1 });
-      }
-      const totalPot = bet.participants.reduce((s, p) => s + (p.amount || 0), 0);
-      if (totalPot > 0) await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${wId}`), { monies: increment(totalPot), wins: increment(1) });
-      else await updateDoc(doc(db, "leagueMembers", `${selectedLeague.id}_${wId}`), { wins: increment(1) });
-    } else {
-      await updateDoc(doc(db, "bets", betId), { resolveVotes: nv, status: "resolve_voting" });
-    }
-    showToast("Vote submitted!");
+    try {
+      await call("votePotWinner", { betId, winnerId });
+      showToast("Vote submitted!");
+    } catch (e) { showToast(e.message || "Failed to submit vote", "error"); }
+  };
+
+  const startPotVote = async betId => {
+    try {
+      await call("startPotVote", { betId });
+    } catch (e) { showToast(e.message || "Failed to start vote", "error"); }
   };
 
   // ── BetCard ──
@@ -1228,7 +1179,7 @@ export default function App() {
         )}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {isOpen && !isCreator && <Btn small onClick={() => claimAnyAction(bet.id)}>⚡ I'll Take That!</Btn>}
+          {isOpen && !isCreator && <Btn small onClick={() => acceptBet(bet.id)}>⚡ I'll Take That!</Btn>}
           {isOpen && isCreator && <span style={{ color: "#aaa", fontSize: 12 }}>Waiting for someone to claim...</span>}
           {bet.status === "pending_acceptance" && !isCreator && bet.opponent === currentUser.id && (
             <><Btn small onClick={() => acceptBet(bet.id)}>Accept ✅</Btn><Btn small variant="danger" onClick={() => declineBet(bet.id)}>Decline ✗</Btn></>
@@ -1246,7 +1197,7 @@ export default function App() {
           {bet.status === "settled" && bet.paidStatus === "paid" && <Badge label="✅ PAID" color="#1a7a1a" small />}
           {bet.status === "settled" && bet.reportedUnpaid && <Badge label="🏴 UNPAID" color="#8b0000" small />}
           {bet.type === "pot" && (bet.status === "active" || bet.status === "resolve_voting") && isCreator && (
-            <Btn small variant="outline" onClick={() => updateDoc(doc(db, "bets", bet.id), { status: "resolve_voting" })}>Start Vote 🗳️</Btn>
+            <Btn small variant="outline" onClick={() => startPotVote(bet.id)}>Start Vote 🗳️</Btn>
           )}
           {bet.type === "pot" && bet.status === "resolve_voting" && !bet.resolveVotes?.[currentUser.id] && (
             <div style={{ width: "100%" }}>
@@ -1286,7 +1237,7 @@ export default function App() {
   if (!selectedLeague) return (
     <>
       {showOnboarding && <OnboardingSlides slides={showOnboarding === "commissioner" ? COMMISSIONER_SLIDES : MEMBER_SLIDES} onDismiss={dismissOnboarding} />}
-      <LeagueLobby currentUser={currentUser} showToast={showToast} myLeagues={myLeagues}
+      <LeagueLobby showToast={showToast} myLeagues={myLeagues}
         onSelectLeague={l => { setSelectedLeague(l); setPage("feed"); }}
         onLeagueCreated={() => { if (!currentUser.commissionerOnboardingDismissed) setShowOnboarding("commissioner"); }}
       />
