@@ -72,6 +72,25 @@ const AVATARS = [
 
 const REACTIONS = ["🔥", "💀", "😂", "😤", "🤝", "💰", "⚡", "🏆"];
 
+const MEMBER_SLIDES = [
+  { logo: true,   title: "Welcome to Bro-Bets",  subtitle: "Where bets get settled" },
+  { emoji: "🤝",  title: "Join a League",         subtitle: "Enter an invite code to join your crew's league" },
+  { emoji: "⚔️",  title: "Place Your Bets",       subtitle: "1v1, Group Pot, or post an Any Action? open bet" },
+  { emoji: "💰",  title: "Monies",                subtitle: "Your league currency — wager on bets, win big or go broke" },
+  { emoji: "🏆",  title: "Leaderboard",           subtitle: "Ranked by net profit. Not just wins — how much you've made" },
+  { emoji: "🏴",  title: "Pay Up",                subtitle: "Don't pay your debt and get the Dishonorable flag for all to see" },
+  { emoji: "✅",  title: "You're Ready!",         subtitle: null, btnLabel: "Let's Bet! 👑" },
+];
+
+const COMMISSIONER_SLIDES = [
+  { emoji: "👑",  title: "You're the Commissioner", subtitle: "You run this league. Make it legendary" },
+  { emoji: "⚙️",  title: "Set Up Your League",      subtitle: "Set starting Monies, season length, and your league name" },
+  { emoji: "📨",  title: "Invite Your Crew",         subtitle: "Share your invite code — your bros enter it to join" },
+  { emoji: "💰",  title: "Manage Monies",            subtitle: "Gift or deduct Monies from any member anytime from the dashboard" },
+  { emoji: "⏱️",  title: "Set the Countdown",        subtitle: "Set a season end date — the league locks when it hits zero" },
+  { emoji: "🚀",  title: "Run It!",                  subtitle: null, btnLabel: "Let's Go Commissioner! 👑" },
+];
+
 const genCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 
 // ── Shared UI ─────────────────────────────────────────────
@@ -278,6 +297,61 @@ function CommentSection({ betId, currentUser, users, betCreatorId }) {
   );
 }
 
+// ── Onboarding Slides ─────────────────────────────────────
+function OnboardingSlides({ slides, onDismiss }) {
+  const [idx, setIdx] = useState(0);
+  const [touchStartX, setTouchStartX] = useState(null);
+
+  const slide = slides[idx];
+  const isLast = idx === slides.length - 1;
+
+  const next = () => { if (!isLast) setIdx(i => i + 1); else onDismiss(); };
+  const prev = () => { if (idx > 0) setIdx(i => i - 1); };
+
+  const onTouchStart = e => setTouchStartX(e.touches[0].clientX);
+  const onTouchEnd = e => {
+    if (touchStartX === null) return;
+    const dx = touchStartX - e.changedTouches[0].clientX;
+    if (dx > 50) next();
+    else if (dx < -50) prev();
+    setTouchStartX(null);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: DARK, zIndex: 1000, display: "flex", flexDirection: "column" }}>
+      <style>{`@keyframes obFade { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+
+      {!isLast && (
+        <button onClick={onDismiss} style={{ position: "absolute", top: 20, right: 20, background: "none", border: "none", color: "#555", fontSize: 14, fontWeight: 700, cursor: "pointer", padding: "8px 12px", zIndex: 1 }}>
+          Skip
+        </button>
+      )}
+
+      <div key={idx} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+        style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 32px 16px", textAlign: "center", animation: "obFade 0.32s ease" }}>
+        {slide.logo
+          ? <img src={logo} alt="Bro-Bets" style={{ width: 140, marginBottom: 28 }} />
+          : <div style={{ fontSize: 80, marginBottom: 28, lineHeight: 1 }}>{slide.emoji}</div>
+        }
+        <div style={{ color: WHITE, fontWeight: 900, fontSize: 27, marginBottom: 14, lineHeight: 1.2 }}>{slide.title}</div>
+        {slide.subtitle && <div style={{ color: "#888", fontSize: 16, lineHeight: 1.65, maxWidth: 300 }}>{slide.subtitle}</div>}
+      </div>
+
+      <div style={{ padding: "0 32px 44px" }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 24 }}>
+          {slides.map((_, i) => (
+            <div key={i} onClick={() => setIdx(i)}
+              style={{ height: 8, borderRadius: 4, background: i === idx ? BLUE : "#333", cursor: "pointer", transition: "width 0.3s, background 0.3s", width: i === idx ? 24 : 8 }} />
+          ))}
+        </div>
+        <Btn onClick={next} style={{ width: "100%", padding: "14px 0", fontSize: 16, fontWeight: 800 }}>
+          {isLast ? (slide.btnLabel || "Let's Go! 👑") : "Next →"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
 // ── Login Page ────────────────────────────────────────────
 function LoginPage({ showToast }) {
   const [mode, setMode] = useState("login");
@@ -359,7 +433,7 @@ function LoginPage({ showToast }) {
 }
 
 // ── League Lobby ──────────────────────────────────────────
-function LeagueLobby({ currentUser, showToast, myLeagues, onSelectLeague }) {
+function LeagueLobby({ currentUser, showToast, myLeagues, onSelectLeague, onLeagueCreated }) {
   const [tab, setTab] = useState("my");
   const [cf, setCf] = useState({ name: "", emoji: "🏆", themeColor: BLUE, startingMonies: "1000", endDate: "" });
   const [joinCode, setJoinCode] = useState("");
@@ -386,6 +460,7 @@ function LeagueLobby({ currentUser, showToast, myLeagues, onSelectLeague }) {
         monies: Number(cf.startingMonies) || 1000, wins: 0, losses: 0, joinedAt: Date.now(),
       });
       showToast(`"${cf.name}" created! Code: ${inviteCode}`);
+      onLeagueCreated?.();
       setTab("my");
     } catch { showToast("Failed to create league", "error"); }
     finally { setLoading(false); }
@@ -838,11 +913,20 @@ export default function App() {
   const [leagueMembers, setLeagueMembers] = useState([]);
   const [allMyMemberships, setAllMyMemberships] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
+  const [showOnboarding, setShowOnboarding] = useState(null); // null | "member" | "commissioner"
 
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   }, []);
+
+  const dismissOnboarding = async () => {
+    const type = showOnboarding;
+    setShowOnboarding(null);
+    if (!currentUser) return;
+    if (type === "member") await updateDoc(doc(db, "users", currentUser.id), { onboardingDismissed: true });
+    else if (type === "commissioner") await updateDoc(doc(db, "users", currentUser.id), { commissionerOnboardingDismissed: true });
+  };
 
   const initFCM = async uid => {
     if (!messaging) { console.warn("[FCM] messaging not initialized"); return; }
@@ -865,7 +949,11 @@ export default function App() {
     return onAuthStateChanged(auth, async fu => {
       if (fu) {
         const snap = await getDoc(doc(db, "users", fu.uid));
-        if (snap.exists()) setCurrentUser({ id: fu.uid, ...snap.data() });
+        if (snap.exists()) {
+          const data = snap.data();
+          setCurrentUser({ id: fu.uid, ...data });
+          if (!data.onboardingDismissed) setShowOnboarding("member");
+        }
         initFCM(fu.uid);
       } else {
         setCurrentUser(null);
@@ -1196,7 +1284,13 @@ export default function App() {
   if (!currentUser) return <LoginPage showToast={showToast} />;
 
   if (!selectedLeague) return (
-    <LeagueLobby currentUser={currentUser} showToast={showToast} myLeagues={myLeagues} onSelectLeague={l => { setSelectedLeague(l); setPage("feed"); }} />
+    <>
+      {showOnboarding && <OnboardingSlides slides={showOnboarding === "commissioner" ? COMMISSIONER_SLIDES : MEMBER_SLIDES} onDismiss={dismissOnboarding} />}
+      <LeagueLobby currentUser={currentUser} showToast={showToast} myLeagues={myLeagues}
+        onSelectLeague={l => { setSelectedLeague(l); setPage("feed"); }}
+        onLeagueCreated={() => { if (!currentUser.commissionerOnboardingDismissed) setShowOnboarding("commissioner"); }}
+      />
+    </>
   );
 
   const accent = selectedLeague.themeColor || BLUE;
@@ -1209,6 +1303,7 @@ export default function App() {
   return (
     <div style={{ background: DARK, minHeight: "100vh", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column" }}>
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}`}</style>
+      {showOnboarding && <OnboardingSlides slides={showOnboarding === "commissioner" ? COMMISSIONER_SLIDES : MEMBER_SLIDES} onDismiss={dismissOnboarding} />}
 
       {toast && (
         <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", background: toast.type === "error" ? "#8b0000" : "#1a7a1a", color: WHITE, padding: "10px 20px", borderRadius: 8, fontWeight: 700, zIndex: 300, fontSize: 14, maxWidth: "90vw", textAlign: "center" }}>
@@ -1244,6 +1339,7 @@ export default function App() {
             <Avatar name={currentUser.username} avatarId={currentUser.avatarId} size={34} />
           </div>
           {isCommissioner && <Btn variant="ghost" small onClick={() => setModal({ type: "commissioner" })}>⚙️</Btn>}
+          <Btn variant="ghost" small onClick={() => setShowOnboarding("member")}>❓</Btn>
           <Btn variant="ghost" small onClick={() => signOut(auth)}>Out</Btn>
         </div>
       </div>
