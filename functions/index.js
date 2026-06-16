@@ -8,14 +8,25 @@ const FieldValue = admin.firestore.FieldValue;
 
 exports.pushNotification = onDocumentCreated("notifications/{id}", async event => {
   const { toUserId, title, body, icon } = event.data.data();
+  console.log(`[pushNotification] new notification doc for user ${toUserId}: "${title}"`);
+
   const user = await admin.firestore().doc(`users/${toUserId}`).get();
   const token = user.data()?.fcmToken;
-  if (!token) return;
-  await admin.messaging().send({
-    token,
-    notification: { title, body },
-    webpush: { notification: { icon } },
-  });
+  if (!token) {
+    console.log(`[pushNotification] user ${toUserId} has no fcmToken on file — skipping push`);
+    return;
+  }
+
+  try {
+    await admin.messaging().send({
+      token,
+      notification: { title, body },
+      webpush: { notification: { icon } },
+    });
+    console.log(`[pushNotification] push sent to ${toUserId}`);
+  } catch (e) {
+    console.error(`[pushNotification] send failed for ${toUserId}:`, e.message);
+  }
 });
 
 // ── Helpers ───────────────────────────────────────────────

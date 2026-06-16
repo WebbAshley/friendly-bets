@@ -37,7 +37,7 @@ const call = (name, data) => httpsCallable(functions, name)(data).then(r => r.da
 const VAPID_KEY = "BJOGIeiqXKUzcTCcFyUY0WfwfwPE6UVHhM-c0bQkhjMX2VrF6rsRSsWXysYArtHsT3gqWoiZoCKrhSkmhiCBZXo";
 
 let messaging = null;
-try { messaging = getMessaging(firebaseApp); } catch {}
+try { messaging = getMessaging(firebaseApp); } catch (e) { console.error("[FCM] getMessaging() failed:", e); }
 
 // Writes a notification record to Firestore.
 // A Cloud Function (functions/index.js) watches this collection
@@ -892,16 +892,18 @@ export default function App() {
   const initFCM = async uid => {
     if (!messaging) { console.warn("[FCM] messaging not initialized"); return; }
     try {
+      console.log("Requesting notification permission...");
       const permission = await Notification.requestPermission();
-      console.log("[FCM] permission:", permission);
+      console.log(permission === "granted" ? "Permission granted" : "Permission denied");
       if (permission !== "granted") return;
       const swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
-      console.log("[FCM] service worker registered:", swReg.scope);
+      await navigator.serviceWorker.ready;
+      console.log("[FCM] service worker registered and active:", swReg.scope);
       const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
-      console.log("[FCM] token:", token ? token.slice(0, 20) + "…" : "none");
+      console.log("FCM token retrieved:", token);
       if (token) {
         await updateDoc(doc(db, "users", uid), { fcmToken: token });
-        console.log("[FCM] token saved to Firestore ✓");
+        console.log("FCM token saved to Firestore");
       }
     } catch (e) { console.error("[FCM] init failed:", e); }
   };
@@ -954,8 +956,13 @@ export default function App() {
   }, [currentUser?.id]);
 
   useEffect(() => {
-    return onSnapshot(collection(db, "users"), snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-  }, []);
+    if (!currentUser) { setUsers([]); return; }
+    return onSnapshot(
+      collection(db, "users"),
+      snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      err => console.error("[users listener] failed:", err)
+    );
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (currentUser) {
