@@ -661,8 +661,9 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
               const isSelected = chipAmt > 0 && chipAmt % val === 0;
               return (
                 <button key={val} onClick={() => setForm(f => ({ ...f, amount: String((Number(f.amount) || 0) + val) }))}
-                  style={{ width: 52, height: 52, borderRadius: "50%", background: color, border: `3px solid ${isSelected ? WHITE : color}`, color: WHITE, fontSize: 18, cursor: "pointer", boxShadow: "0 3px 8px rgba(0,0,0,.5)", marginLeft: idx === 0 ? 0 : -10, zIndex: idx, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>
-                  {emoji}
+                  style={{ width: 52, height: 52, borderRadius: "50%", background: color, border: `3px solid ${isSelected ? WHITE : color}`, color: WHITE, cursor: "pointer", boxShadow: "0 3px 8px rgba(0,0,0,.5)", marginLeft: idx === 0 ? 0 : -10, zIndex: idx, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, fontWeight: 900 }}>
+                  <span style={{ fontSize: 14, lineHeight: 1 }}>{emoji}</span>
+                  <span style={{ fontSize: 10, lineHeight: 1, fontWeight: 800 }}>{val}</span>
                 </button>
               );
             })}
