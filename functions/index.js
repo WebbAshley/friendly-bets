@@ -497,6 +497,83 @@ exports.giftMonies = onCall(async request => {
   return { ok: true };
 });
 
+exports.grantSeasonAwards = onCall(async request => {
+  const uid = requireAuth(request);
+  const { leagueId } = request.data || {};
+  if (!leagueId) throw new HttpsError("invalid-argument", "leagueId required.");
+  const { league } = await requireCommissioner(leagueId, uid);
+  const leagueName = league.name;
+  const year = new Date().getFullYear().toString();
+
+  const membersSnap = await db.collection("leagueMembers").where("leagueId", "==", leagueId).get();
+  if (membersSnap.empty) throw new HttpsError("failed-precondition", "No members found.");
+
+  const betsSnap = await db.collection("bets").where("leagueId", "==", leagueId).where("status", "==", "settled").get();
+  const settledBets = betsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  const members = membersSnap.docs.map(d => d.data());
+
+  // 👑 Season Champion: highest monies
+  const champion = [...members].sort((a, b) => (b.monies ?? 0) - (a.monies ?? 0))[0];
+
+  // 💰 High Roller: most total monies wagered (sum of won bets)
+  const wagerTotals = {};
+  settledBets.forEach(b => {
+    if (b.amount > 0) {
+      wagerTotals[b.winner] = (wagerTotals[b.winner] || 0) + b.amount;
+    }
+  });
+  const highRollerEntry = Object.entries(wagerTotals).sort(([, a], [, b]) => b - a)[0];
+  const highRoller = highRollerEntry ? members.find(m => m.userId === highRollerEntry[0]) : null;
+
+  // 🔥 Hot Streak: most wins
+  const hotStreak = [...members].sort((a, b) => (b.wins || 0) - (a.wins || 0))[0];
+
+  // 🎯 Sharp: highest win% with min 10 bets
+  const sharp = members
+    .map(m => ({ ...m, total: (m.wins || 0) + (m.losses || 0), pct: (m.wins || 0) / Math.max(1, (m.wins || 0) + (m.losses || 0)) }))
+    .filter(m => m.total >= 10)
+    .sort((a, b) => b.pct - a.pct)[0] || null;
+
+  // 🏴 Most Dishonorable: most dishonorable debts
+  const dishonorableSnap = await db.collection("users").where("dishonorable", "==", true).get();
+  const dishonorableMemberIds = new Set(members.map(m => m.userId));
+  const dishonorable = dishonorableSnap.docs
+    .filter(d => dishonorableMemberIds.has(d.id))
+    .sort((a, b) => (b.data().dishonorableDebts?.length || 0) - (a.data().dishonorableDebts?.length || 0))[0];
+  const dishonorableUserId = dishonorable?.id || null;
+
+  const awards = [
+    { type: "champion", emoji: "👑", label: "Season Champion", userId: champion?.userId },
+    { type: "hot_streak", emoji: "🔥", label: "Hot Streak", userId: hotStreak?.userId },
+    { type: "high_roller", emoji: "💰", label: "High Roller", userId: highRoller?.userId },
+    { type: "sharp", emoji: "🎯", label: "Sharp", userId: sharp?.userId },
+    { type: "dishonorable", emoji: "🏴", label: "Most Dishonorable", userId: dishonorableUserId },
+  ].filter(a => a.userId);
+
+  const batch = db.batch();
+  for (const award of awards) {
+    const userRef = db.doc(`users/${award.userId}`);
+    batch.update(userRef, {
+      awards: FieldValue.arrayUnion({ ...award, leagueId, leagueName, year }),
+    });
+    if (award.type === "champion") {
+      batch.update(userRef, {
+        championBadges: FieldValue.arrayUnion({ leagueId, leagueName, year }),
+      });
+    }
+  }
+  const ceremonyRef = db.doc(`leagues/${leagueId}/awards/${year}`);
+  batch.set(ceremonyRef, { awards, year, leagueName, createdAt: Date.now() });
+  await batch.commit();
+
+  for (const award of awards) {
+    await sendNotif(award.userId, `${award.emoji} You won the "${award.label}" award in ${leagueName}!`, { type: "award", leagueId });
+  }
+
+  return { awards };
+});
+
 exports.newSeason = onCall(async request => {
   const uid = requireAuth(request);
   const { leagueId, behavior } = request.data || {};

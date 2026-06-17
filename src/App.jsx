@@ -764,6 +764,35 @@ function ProfileModal({ user, currentUser, bets, memberData, onClose, showToast 
           </>
         )}
 
+        {(user.championBadges?.length > 0 || user.awards?.length > 0) && (
+          <div style={{ marginBottom: 14 }}>
+            {user.championBadges?.length > 0 && (
+              <>
+                <div style={{ color: "#aaa", fontSize: 11, fontWeight: 700, marginBottom: 6, letterSpacing: 0.5 }}>👑 CHAMPION BADGES</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                  {user.championBadges.map((b, i) => (
+                    <span key={i} style={{ background: "#3b2800", border: "1px solid #ca8a04", borderRadius: 20, padding: "4px 12px", color: "#fbbf24", fontSize: 11, fontWeight: 700 }}>
+                      👑 {b.year} · {b.leagueName}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+            {user.awards?.length > 0 && (
+              <>
+                <div style={{ color: "#aaa", fontSize: 11, fontWeight: 700, marginBottom: 6, letterSpacing: 0.5 }}>🏆 SEASON AWARDS</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {user.awards.map((a, i) => (
+                    <span key={i} style={{ background: SECTION, border: "1px solid #444", borderRadius: 20, padding: "4px 10px", color: "#ddd", fontSize: 11 }}>
+                      {a.emoji} {a.label} · {a.year}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {isSelf && user.dishonorableDebts?.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <div style={{ color: "#ff4444", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🏴 Settle to clear flag:</div>
@@ -951,6 +980,16 @@ function CommissionerDashboard({ league, currentUser, members, users, onClose, s
                 <option value="carryover">Carry over Monies</option>
               </Sel>
               <Btn onClick={saveSettings} style={{ width: "100%", marginBottom: 16 }}>Save Settings</Btn>
+              <div style={{ borderTop: "1px solid #444", paddingTop: 14, marginBottom: 12 }}>
+                <div style={{ color: "#f59e0b", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>🏆 SEASON AWARDS</div>
+                <Btn variant="outline" onClick={async () => {
+                  try {
+                    const { awards } = await call("grantSeasonAwards", { leagueId: league.id });
+                    showToast("Season awards granted! 🏆");
+                    onClose();
+                  } catch (e) { showToast(e.message || "Failed to grant awards", "error"); }
+                }} style={{ width: "100%", marginBottom: 12 }}>🏆 Grant Season Awards</Btn>
+              </div>
               <div style={{ borderTop: "1px solid #444", paddingTop: 14 }}>
                 <div style={{ color: "#ff4444", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>⚠️ DANGER ZONE</div>
                 <Btn variant="danger" onClick={newSeason} style={{ width: "100%" }}>🔄 Start New Season</Btn>
@@ -985,6 +1024,7 @@ export default function App() {
   const [inboxItems, setInboxItems] = useState([]);
   const [weeklySnapshots, setWeeklySnapshots] = useState([]);
   const [snapshotWeek, setSnapshotWeek] = useState(null);
+  const [awardsCeremony, setAwardsCeremony] = useState(null);
 
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
