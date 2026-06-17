@@ -528,9 +528,14 @@ function LeagueLobby({ showToast, myLeagues, onSelectLeague, onLeagueCreated }) 
 }
 
 // ── Create Bet Modal ──────────────────────────────────────
+const RISK_CHIPS = [
+  "💪 100 Push-ups", "🥃 Fireball Shot", "💵 Cash", "🍕 Buy Pizza",
+  "🌮 Buy Tacos", "🍺 Buy a Round", "👶 Social Media Post", "🤐 Loser Goes Silent for 24hrs",
+];
+
 function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, onClose, showToast }) {
   const [form, setForm] = useState({
-    type: "1v1", opponentId: "", description: "", stakes: "",
+    type: "1v1", opponentId: "", description: "", stakeChips: [], stakesCustom: "",
     amount: "", deadline: "", winType: "single", inviteIds: [], anyAction: false,
   });
   const [submitting, setSubmitting] = useState(false);
@@ -552,9 +557,10 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
     if (!form.anyAction && form.type === "1v1" && !form.opponentId) return showToast("Select an opponent", "error");
     setSubmitting(true);
     try {
+      const stakeParts = [...form.stakeChips, ...(form.stakesCustom.trim() ? [form.stakesCustom.trim()] : [])];
       await call("createBet", {
         leagueId: league.id, type: form.type, opponentId: form.opponentId,
-        description: form.description, stakes: form.stakes, amount: amt,
+        description: form.description, stakes: stakeParts.join(", "), amount: amt,
         deadline: form.deadline, winType: form.winType, inviteIds: form.inviteIds,
         anyAction: form.anyAction,
       });
@@ -616,7 +622,22 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
           </div>
         )}
         <Field label="Bet Description" placeholder="e.g. Cowboys win Sunday" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
-        <Field label="Stakes (custom)" placeholder="e.g. Buy dinner" value={form.stakes} onChange={e => setForm(f => ({ ...f, stakes: e.target.value }))} />
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: "#aaa", fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Extra Risk 🔥 <span style={{ color: "#555", fontWeight: 400 }}>(tap to add)</span></div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            {RISK_CHIPS.map(chip => {
+              const sel = form.stakeChips.includes(chip);
+              return (
+                <button key={chip} onClick={() => setForm(f => ({ ...f, stakeChips: sel ? f.stakeChips.filter(c => c !== chip) : [...f.stakeChips, chip] }))}
+                  style={{ background: sel ? BLUE : "#1a1a1c", border: `1px solid ${sel ? BLUE : "#444"}`, borderRadius: 20, color: sel ? WHITE : "#ccc", padding: "6px 12px", fontSize: 12, cursor: "pointer", fontWeight: sel ? 700 : 400 }}>
+                  {chip}
+                </button>
+              );
+            })}
+          </div>
+          <input value={form.stakesCustom} onChange={e => setForm(f => ({ ...f, stakesCustom: e.target.value }))}
+            placeholder="✏️ Custom extra risk..." style={{ width: "100%", boxSizing: "border-box", marginTop: 8, background: "#111", border: "1px solid #333", borderRadius: 6, color: WHITE, padding: "7px 10px", fontSize: 12 }} />
+        </div>
         <Field label="💰 Monies Wagered" type="number" placeholder="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
         <Field label="Deadline" type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} />
         {!form.anyAction && form.type === "pot" && (
@@ -1287,9 +1308,9 @@ export default function App() {
           {/* 5 — Risk pills */}
           {(bet.stakes || opp?.dishonorable || (inFeed && creator?.dishonorable)) && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-              {bet.stakes && (
-                <span style={{ background: SECTION, color: "#ccc", borderRadius: 12, padding: "3px 10px", fontSize: 11, border: "1px solid #3a3a3c" }}>📋 {bet.stakes}</span>
-              )}
+              {bet.stakes && bet.stakes.split(",").map(s => s.trim()).filter(Boolean).map((s, i) => (
+                <span key={i} style={{ background: "#1a0a2e", color: "#c084fc", borderRadius: 20, padding: "4px 10px", fontSize: 11, border: "1px solid #4c1d95", fontWeight: 600 }}>🔥 {s}</span>
+              ))}
               {opp?.dishonorable && (
                 <span style={{ background: "#2d0a0a", color: "#f87171", borderRadius: 12, padding: "3px 10px", fontSize: 11, border: "1px solid #7f1d1d" }}>🏴 Dishonorable Opp</span>
               )}
