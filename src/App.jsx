@@ -251,15 +251,14 @@ function ReactionBar({ betId, currentUser, betCreatorId }) {
 function CommentSection({ betId, currentUser, users, betCreatorId }) {
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState("");
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
     const unsub = onSnapshot(collection(db, "bets", betId, "comments"), snap => {
       setMsgs(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.createdAt - b.createdAt));
     });
     return unsub;
-  }, [betId, open]);
+  }, [betId]);
 
   const send = async () => {
     if (!text.trim()) return;
@@ -271,33 +270,33 @@ function CommentSection({ betId, currentUser, users, betCreatorId }) {
   };
 
   const getU = id => users.find(u => u.id === id);
+  const displayMsgs = expanded ? msgs : msgs.slice(-2);
 
   return (
-    <div style={{ marginTop: 8 }}>
-      <button onClick={() => setOpen(o => !o)} style={{ background: "none", border: "none", color: "#aaa", fontSize: 12, cursor: "pointer", padding: 0 }}>
-        💬 {open ? "Hide" : `Comments${msgs.length > 0 && !open ? ` (${msgs.length})` : ""}`}
-      </button>
-      {open && (
-        <div style={{ marginTop: 8 }}>
-          {msgs.map(m => {
-            const u = getU(m.userId);
-            return (
-              <div key={m.id} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-                <Avatar name={u?.username} avatarId={u?.avatarId} size={24} />
-                <div style={{ background: "#111", borderRadius: 8, padding: "5px 10px", flex: 1 }}>
-                  <span style={{ color: BLUE, fontSize: 11, fontWeight: 700 }}>{u?.username} </span>
-                  <span style={{ color: WHITE, fontSize: 13 }}>{m.text}</span>
-                </div>
-              </div>
-            );
-          })}
-          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-            <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === "Enter" && send()}
-              placeholder="Add a comment..." style={{ flex: 1, background: "#111", border: "1px solid #444", borderRadius: 6, color: WHITE, padding: "6px 10px", fontSize: 13 }} />
-            <Btn small onClick={send}>Send</Btn>
-          </div>
-        </div>
+    <div style={{ borderTop: "1px solid #222", padding: "8px 14px 10px" }}>
+      {msgs.length > 2 && (
+        <button onClick={() => setExpanded(e => !e)}
+          style={{ background: "none", border: "none", color: "#666", fontSize: 11, cursor: "pointer", padding: "0 0 6px", display: "block" }}>
+          💬 {expanded ? "Hide comments" : `View all ${msgs.length} comments`}
+        </button>
       )}
+      {displayMsgs.map(m => {
+        const u = getU(m.userId);
+        return (
+          <div key={m.id} style={{ display: "flex", gap: 6, marginBottom: 5 }}>
+            <Avatar name={u?.username} avatarId={u?.avatarId} size={22} />
+            <div style={{ background: "#111", borderRadius: 8, padding: "4px 9px", flex: 1, minWidth: 0 }}>
+              <span style={{ color: BLUE, fontSize: 11, fontWeight: 700 }}>{u?.username} </span>
+              <span style={{ color: WHITE, fontSize: 12 }}>{m.text}</span>
+            </div>
+          </div>
+        );
+      })}
+      <div style={{ display: "flex", gap: 6, marginTop: msgs.length > 0 ? 6 : 0 }}>
+        <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === "Enter" && send()}
+          placeholder="Talk trash... 💬" style={{ flex: 1, background: "#111", border: "1px solid #333", borderRadius: 6, color: WHITE, padding: "5px 9px", fontSize: 12 }} />
+        <Btn small onClick={send}>Send</Btn>
+      </div>
     </div>
   );
 }
@@ -1365,16 +1364,14 @@ export default function App() {
 
         </div>
 
-        {/* Reactions */}
-        <div style={{ padding: "4px 14px 0" }}>
+        {/* Reactions + date footer */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 14px 6px" }}>
           <ReactionBar betId={bet.id} currentUser={currentUser} betCreatorId={bet.creator} />
+          <span style={{ color: "#555", fontSize: 11 }}>{createdDate}</span>
         </div>
 
-        {/* 7 — Footer */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 14px 8px" }}>
-          <span style={{ color: "#555", fontSize: 11 }}>{createdDate}</span>
-          <CommentSection betId={bet.id} currentUser={currentUser} users={users} betCreatorId={bet.creator} />
-        </div>
+        {/* Comments — always visible */}
+        <CommentSection betId={bet.id} currentUser={currentUser} users={users} betCreatorId={bet.creator} />
 
       </Card>
     );
