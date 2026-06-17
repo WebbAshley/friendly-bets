@@ -534,6 +534,7 @@ function CreateBetModal({ users, currentUser, league, myMember, onClose, showToa
     type: "1v1", opponentId: "", description: "", stakes: "",
     amount: "", deadline: "", winType: "single", inviteIds: [], anyAction: false,
   });
+  const [submitting, setSubmitting] = useState(false);
   const others = users.filter(u => u.id !== currentUser.id);
   const balance = myMember?.monies ?? 0;
 
@@ -542,11 +543,12 @@ function CreateBetModal({ users, currentUser, league, myMember, onClose, showToa
   }));
 
   const submit = async () => {
+    if (submitting) return;
     if (!form.description) return showToast("Add a bet description", "error");
     const amt = parseFloat(form.amount) || 0;
     if (amt > balance) return showToast(`Not enough 💰 Monies (have ${balance})`, "error");
     if (!form.anyAction && form.type === "1v1" && !form.opponentId) return showToast("Select an opponent", "error");
-
+    setSubmitting(true);
     try {
       await call("createBet", {
         leagueId: league.id, type: form.type, opponentId: form.opponentId,
@@ -557,6 +559,7 @@ function CreateBetModal({ users, currentUser, league, myMember, onClose, showToa
       onClose();
       showToast(form.anyAction ? "⚡ Any Action? posted to feed!" : "Bet created! 💰");
     } catch (e) { showToast(e.message || "Failed to create bet", "error"); }
+    finally { setSubmitting(false); }
   };
 
   return (
@@ -612,7 +615,7 @@ function CreateBetModal({ users, currentUser, league, myMember, onClose, showToa
           </Sel>
         )}
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <Btn onClick={submit} style={{ flex: 1 }}>Create Bet 💰</Btn>
+          <Btn onClick={submit} disabled={submitting} style={{ flex: 1, opacity: submitting ? 0.6 : 1 }}>{submitting ? "Creating..." : "Create Bet 💰"}</Btn>
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
@@ -875,6 +878,9 @@ export default function App() {
   const [allMyMemberships, setAllMyMemberships] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [showOnboarding, setShowOnboarding] = useState(null); // null | "member" | "commissioner"
+  const [submittingBets, setSubmittingBets] = useState(new Set());
+  const addSubmitting = key => setSubmittingBets(prev => new Set([...prev, key]));
+  const delSubmitting = key => setSubmittingBets(prev => { const s = new Set(prev); s.delete(key); return s; });
 
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
@@ -1056,10 +1062,13 @@ export default function App() {
   // challenge) are merged server-side into a single acceptBet call, fixing
   // a previous bug where claiming an open bet deducted Monies twice.
   const acceptBet = async id => {
+    if (submittingBets.has(`${id}:accept`)) return;
+    addSubmitting(`${id}:accept`);
     try {
       await call("acceptBet", { betId: id });
       showToast("Bet accepted! 🤝");
     } catch (e) { showToast(e.message || "Failed to accept bet", "error"); }
+    finally { delSubmitting(`${id}:accept`); }
   };
 
   const declineBet = async id => {
@@ -1077,10 +1086,13 @@ export default function App() {
   };
 
   const confirmWin = async id => {
+    if (submittingBets.has(`${id}:confirm`)) return;
+    addSubmitting(`${id}:confirm`);
     try {
       await call("confirmWin", { betId: id });
       showToast("Bet settled! 💰 Monies transferred!");
     } catch (e) { showToast(e.message || "Failed to confirm win", "error"); }
+    finally { delSubmitting(`${id}:confirm`); }
   };
 
   const disputeClaim = async id => {
@@ -1091,17 +1103,23 @@ export default function App() {
   };
 
   const markPaid = async id => {
+    if (submittingBets.has(`${id}:markpaid`)) return;
+    addSubmitting(`${id}:markpaid`);
     try {
       await call("markPaid", { betId: id });
       showToast("Marked as paid! 🤝");
     } catch (e) { showToast(e.message || "Failed to mark as paid", "error"); }
+    finally { delSubmitting(`${id}:markpaid`); }
   };
 
   const reportUnpaid = async id => {
+    if (submittingBets.has(`${id}:report`)) return;
+    addSubmitting(`${id}:report`);
     try {
       await call("reportUnpaid", { betId: id });
       showToast("Reported unpaid. 🏴 Flag applied.");
     } catch (e) { showToast(e.message || "Failed to report unpaid", "error"); }
+    finally { delSubmitting(`${id}:report`); }
   };
 
   const votePotWinner = async (betId, winnerId) => {
@@ -1186,20 +1204,32 @@ export default function App() {
         )}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {isOpen && !isCreator && <Btn small onClick={() => acceptBet(bet.id)}>⚡ I'll Take That!</Btn>}
+          {isOpen && !isCreator && (
+            <Btn small onClick={() => acceptBet(bet.id)} disabled={submittingBets.has(`${bet.id}:accept`)} style={{ opacity: submittingBets.has(`${bet.id}:accept`) ? 0.6 : 1 }}>
+              {submittingBets.has(`${bet.id}:accept`) ? "Accepting..." : "⚡ I'll Take That!"}
+            </Btn>
+          )}
           {isOpen && isCreator && <span style={{ color: "#aaa", fontSize: 12 }}>Waiting for someone to claim...</span>}
           {bet.status === "pending_acceptance" && !isCreator && bet.opponent === currentUser.id && (
-            <><Btn small onClick={() => acceptBet(bet.id)}>Accept ✅</Btn><Btn small variant="danger" onClick={() => declineBet(bet.id)}>Decline ✗</Btn></>
+            <><Btn small onClick={() => acceptBet(bet.id)} disabled={submittingBets.has(`${bet.id}:accept`)} style={{ opacity: submittingBets.has(`${bet.id}:accept`) ? 0.6 : 1 }}>
+              {submittingBets.has(`${bet.id}:accept`) ? "Accepting..." : "Accept ✅"}
+            </Btn><Btn small variant="danger" onClick={() => declineBet(bet.id)}>Decline ✗</Btn></>
           )}
           {bet.type === "1v1" && bet.status === "active" && (isCreator || bet.opponent === currentUser.id) && (
             <Btn small onClick={() => claimWin(bet.id)}>Claim Win 🏆</Btn>
           )}
           {bet.status === "claimed" && bet.claimedBy !== currentUser.id && (
-            <><Btn small variant="success" onClick={() => confirmWin(bet.id)}>Confirm ✅</Btn><Btn small variant="danger" onClick={() => disputeClaim(bet.id)}>Dispute ⚠️</Btn></>
+            <><Btn small variant="success" onClick={() => confirmWin(bet.id)} disabled={submittingBets.has(`${bet.id}:confirm`)} style={{ opacity: submittingBets.has(`${bet.id}:confirm`) ? 0.6 : 1 }}>
+              {submittingBets.has(`${bet.id}:confirm`) ? "Confirming..." : "Confirm ✅"}
+            </Btn><Btn small variant="danger" onClick={() => disputeClaim(bet.id)}>Dispute ⚠️</Btn></>
           )}
           {bet.status === "claimed" && bet.claimedBy === currentUser.id && <span style={{ color: "#f59e0b", fontSize: 12 }}>Waiting for confirmation...</span>}
           {bet.type === "1v1" && bet.status === "settled" && isWinner && !bet.reportedUnpaid && bet.paidStatus === "unpaid" && (
-            <><Btn small variant="success" onClick={() => markPaid(bet.id)}>Mark Paid ✅</Btn><Btn small variant="danger" onClick={() => reportUnpaid(bet.id)}>Report Unpaid 🏴</Btn></>
+            <><Btn small variant="success" onClick={() => markPaid(bet.id)} disabled={submittingBets.has(`${bet.id}:markpaid`)} style={{ opacity: submittingBets.has(`${bet.id}:markpaid`) ? 0.6 : 1 }}>
+              {submittingBets.has(`${bet.id}:markpaid`) ? "Updating..." : "Mark Paid ✅"}
+            </Btn><Btn small variant="danger" onClick={() => reportUnpaid(bet.id)} disabled={submittingBets.has(`${bet.id}:report`)} style={{ opacity: submittingBets.has(`${bet.id}:report`) ? 0.6 : 1 }}>
+              {submittingBets.has(`${bet.id}:report`) ? "Reporting..." : "Report Unpaid 🏴"}
+            </Btn></>
           )}
           {bet.status === "settled" && bet.paidStatus === "paid" && <Badge label="✅ PAID" color="#1a7a1a" small />}
           {bet.status === "settled" && bet.reportedUnpaid && <Badge label="🏴 UNPAID" color="#8b0000" small />}
