@@ -638,7 +638,29 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
           <input value={form.stakesCustom} onChange={e => setForm(f => ({ ...f, stakesCustom: e.target.value }))}
             placeholder="✏️ Custom extra risk..." style={{ width: "100%", boxSizing: "border-box", marginTop: 8, background: "#111", border: "1px solid #333", borderRadius: 6, color: WHITE, padding: "7px 10px", fontSize: 12 }} />
         </div>
-        <Field label="💰 Monies Wagered" type="number" placeholder="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: "#aaa", fontSize: 12, fontWeight: 600, marginBottom: 8 }}>💰 Monies Wagered</div>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 10, position: "relative", paddingLeft: 4 }}>
+            {[["🔵", 25, "#0070C0"], ["🔴", 100, "#dc2626"], ["⚫", 200, "#3a3a3c"], ["🟡", 500, "#ca8a04"]].map(([emoji, val, color], idx) => {
+              const chipAmt = Number(form.amount) || 0;
+              const isSelected = chipAmt > 0 && chipAmt % val === 0;
+              return (
+                <button key={val} onClick={() => setForm(f => ({ ...f, amount: String((Number(f.amount) || 0) + val) }))}
+                  style={{ width: 52, height: 52, borderRadius: "50%", background: color, border: `3px solid ${isSelected ? WHITE : color}`, color: WHITE, fontSize: 18, cursor: "pointer", boxShadow: "0 3px 8px rgba(0,0,0,.5)", marginLeft: idx === 0 ? 0 : -10, zIndex: idx, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>
+                  {emoji}
+                </button>
+              );
+            })}
+            <div style={{ marginLeft: 16, flex: 1, textAlign: "right" }}>
+              <div style={{ color: BLUE, fontWeight: 900, fontSize: 20 }}>💰 {Number(form.amount) || 0}</div>
+              {(Number(form.amount) || 0) > 0 && (
+                <button onClick={() => setForm(f => ({ ...f, amount: "" }))} style={{ background: "none", border: "none", color: "#555", fontSize: 11, cursor: "pointer", padding: 0, marginTop: 2 }}>Clear</button>
+              )}
+            </div>
+          </div>
+          <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+            placeholder="Or type custom amount..." style={{ width: "100%", boxSizing: "border-box", background: "#111", border: "1px solid #333", borderRadius: 6, color: WHITE, padding: "6px 10px", fontSize: 12 }} />
+        </div>
         <Field label="Deadline" type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} />
         {!form.anyAction && form.type === "pot" && (
           <Sel label="Win Type" value={form.winType} onChange={e => setForm(f => ({ ...f, winType: e.target.value }))}>
