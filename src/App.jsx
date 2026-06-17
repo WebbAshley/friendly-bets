@@ -439,7 +439,7 @@ function LoginPage({ showToast }) {
 // ── League Lobby ──────────────────────────────────────────
 function LeagueLobby({ showToast, myLeagues, onSelectLeague, onLeagueCreated }) {
   const [tab, setTab] = useState("my");
-  const [cf, setCf] = useState({ name: "", emoji: "🏆", themeColor: BLUE, startingMonies: "1000", endDate: "" });
+  const [cf, setCf] = useState({ name: "", emoji: "🏆", themeColor: BLUE, startingMonies: "1000", endDate: "", buyIn: "", payoutSetting: "winner_all" });
   const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -450,6 +450,7 @@ function LeagueLobby({ showToast, myLeagues, onSelectLeague, onLeagueCreated }) 
       const { inviteCode } = await call("createLeague", {
         name: cf.name.trim(), emoji: cf.emoji || "🏆", themeColor: cf.themeColor || BLUE,
         startingMonies: Number(cf.startingMonies) || 1000, endDate: cf.endDate || "",
+        buyIn: Number(cf.buyIn) || 0, payoutSetting: cf.payoutSetting || "winner_all",
       });
       showToast(`"${cf.name}" created! Code: ${inviteCode}`);
       onLeagueCreated?.();
@@ -513,6 +514,14 @@ function LeagueLobby({ showToast, myLeagues, onSelectLeague, onLeagueCreated }) 
           </div>
           <Field label="Starting 💰 Monies" type="number" placeholder="1000" value={cf.startingMonies} onChange={e => setCf(f => ({ ...f, startingMonies: e.target.value }))} />
           <Field label="Season End Date (optional)" type="date" value={cf.endDate} onChange={e => setCf(f => ({ ...f, endDate: e.target.value }))} />
+          <Field label="💵 Cash Buy-in (optional, $)" type="number" placeholder="0" value={cf.buyIn} onChange={e => setCf(f => ({ ...f, buyIn: e.target.value }))} />
+          {Number(cf.buyIn) > 0 && (
+            <Sel label="Payout Setting" value={cf.payoutSetting} onChange={e => setCf(f => ({ ...f, payoutSetting: e.target.value }))}>
+              <option value="winner_all">Winner Takes All</option>
+              <option value="top3_split">Top 3 Split</option>
+              <option value="commissioner_decides">Commissioner Decides</option>
+            </Sel>
+          )}
           <Btn onClick={createLeague} style={{ width: "100%" }} disabled={loading}>{loading ? "Creating..." : "Create League 🏆"}</Btn>
         </div>
       )}
@@ -845,9 +854,9 @@ function CommissionerDashboard({ league, currentUser, members, users, onClose, s
           <span style={{ color: WHITE, fontWeight: 800, fontSize: 16 }}>⚙️ Commissioner Dashboard</span>
           <Btn variant="ghost" small onClick={onClose}>✕</Btn>
         </div>
-        <div style={{ display: "flex", borderBottom: "1px solid #333" }}>
-          {[["members", "👥 Members"], ["monies", "💰 Monies"], ["announce", "📣 Post"], ["settings", "⚙️ Season"]].map(([t, l]) => (
-            <button key={t} onClick={() => setTab(t)} style={{ flex: 1, background: "none", border: "none", color: tab === t ? BLUE : "#aaa", fontWeight: 700, fontSize: 11, padding: "10px 0", cursor: "pointer", borderBottom: tab === t ? `2px solid ${BLUE}` : "none" }}>
+        <div style={{ display: "flex", borderBottom: "1px solid #333", overflowX: "auto" }}>
+          {[["members", "👥"], ["monies", "💰"], ["buyin", "🔒"], ["announce", "📣"], ["settings", "⚙️"]].map(([t, l]) => (
+            <button key={t} onClick={() => setTab(t)} style={{ flex: 1, background: "none", border: "none", color: tab === t ? BLUE : "#aaa", fontWeight: 700, fontSize: 14, padding: "10px 0", cursor: "pointer", borderBottom: tab === t ? `2px solid ${BLUE}` : "none", whiteSpace: "nowrap" }}>
               {l}
             </button>
           ))}
@@ -885,6 +894,43 @@ function CommissionerDashboard({ league, currentUser, members, users, onClose, s
               </Sel>
               <Field label="Amount (negative to deduct)" type="number" placeholder="100" value={giftForm.amount} onChange={e => setGiftForm(f => ({ ...f, amount: e.target.value }))} />
               <Btn onClick={giftMonies} style={{ width: "100%" }}>Apply 💰</Btn>
+            </>
+          )}
+
+          {tab === "buyin" && (
+            <>
+              {(league.buyIn || 0) === 0
+                ? <div style={{ color: "#555", textAlign: "center", padding: 24 }}>No cash buy-in set for this league.</div>
+                : <>
+                  <div style={{ background: "#052e16", border: "1px solid #14532d", borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+                    <div style={{ color: "#4ade80", fontWeight: 900, fontSize: 18 }}>💵 ${league.buyIn} BUY-IN</div>
+                    <div style={{ color: "#aaa", fontSize: 12, marginTop: 2 }}>
+                      {members.filter(m => m.buyInPaid).length}/{members.length} paid ·{" "}
+                      Payout: {({ winner_all: "Winner Takes All", top3_split: "Top 3 Split", commissioner_decides: "Commissioner Decides" })[league.payoutSetting] || "TBD"}
+                    </div>
+                  </div>
+                  {members.map(m => {
+                    const u = getU(m.userId);
+                    if (!u) return null;
+                    return (
+                      <div key={m.userId} style={{ display: "flex", alignItems: "center", gap: 10, background: DEEP, borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+                        <Avatar name={u.username} avatarId={u.avatarId} size={30} />
+                        <div style={{ flex: 1 }}>
+                          <span style={{ color: m.buyInPaid ? WHITE : "#888", fontWeight: 700, fontSize: 13 }}>{u.username}</span>
+                          {!m.buyInPaid && <span style={{ color: "#f59e0b", fontSize: 11, marginLeft: 6 }}>🔒 unpaid</span>}
+                          {m.buyInPaid && <span style={{ color: "#22c55e", fontSize: 11, marginLeft: 6 }}>✅ paid</span>}
+                        </div>
+                        {!m.buyInPaid && (
+                          <Btn small variant="success" onClick={async () => {
+                            try { await call("markBuyInPaid", { leagueId: league.id, userId: m.userId }); showToast("Buy-in confirmed! 🔓"); }
+                            catch (e) { showToast(e.message || "Failed", "error"); }
+                          }}>Mark Paid 💵</Btn>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              }
             </>
           )}
 
@@ -1545,6 +1591,12 @@ export default function App() {
 
         {page === "feed" && (
           <>
+            {(selectedLeague.buyIn || 0) > 0 && myMember && !myMember.buyInPaid && (
+              <div style={{ background: "#451a03", border: "1px solid #92400e", borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", gap: 10, alignItems: "center" }}>
+                <span style={{ fontSize: 20 }}>🔒</span>
+                <div style={{ color: "#fbbf24", fontSize: 13 }}>Your buy-in of <strong>${selectedLeague.buyIn}</strong> hasn't been confirmed yet. Contact your commissioner — you cannot place bets until it's paid.</div>
+              </div>
+            )}
             {selectedLeague.endDate && <CountdownTimer endDate={selectedLeague.endDate} onNearEnd={() => sendNotif(currentUser.id, "⏱️ 24 hours left in the season! Place your bets!")} />}
 
             {pinnedAnnouncements.length > 0 && pinnedAnnouncements.map(a => (
@@ -1626,6 +1678,20 @@ export default function App() {
               <div style={{ color: WHITE, fontWeight: 800, fontSize: 20 }}>🏆 Leaderboard</div>
               {selectedLeague.endDate && <CountdownTimer endDate={selectedLeague.endDate} compact />}
             </div>
+            {(selectedLeague.buyIn || 0) > 0 && (
+              <div style={{ background: "#052e16", border: "1px solid #14532d", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ color: "#4ade80", fontWeight: 900, fontSize: 18 }}>
+                    💵 ${selectedLeague.buyIn * leagueMembers.filter(m => m.buyInPaid).length} POT
+                  </div>
+                  <div style={{ color: "#aaa", fontSize: 12 }}>
+                    {leagueMembers.filter(m => m.buyInPaid).length}/{leagueMembers.length} paid ·{" "}
+                    {({ winner_all: "Winner Takes All", top3_split: "Top 3 Split", commissioner_decides: "Commissioner Decides" })[selectedLeague.payoutSetting] || ""}
+                  </div>
+                </div>
+                <span style={{ fontSize: 28 }}>🏦</span>
+              </div>
+            )}
             {sortedMembers.length === 0
               ? <div style={{ color: "#555", textAlign: "center", padding: 32 }}>No members yet.</div>
               : sortedMembers.map((m, i) => {
@@ -1635,14 +1701,16 @@ export default function App() {
                 const winPct = total > 0 ? Math.round(m.wins / total * 100) : 0;
                 const profit = (m.monies ?? 0) - (selectedLeague.startingMonies || 1000);
                 const profitColor = profit > 0 ? "#22c55e" : profit < 0 ? "#ff4444" : "#aaa";
+                const isLocked = (selectedLeague.buyIn || 0) > 0 && !m.buyInPaid;
                 return (
-                  <Card key={m.userId} style={{ borderColor: i === 0 ? accent : "#444" }} onClick={() => setModal({ type: "profile", user: u })}>
+                  <Card key={m.userId} style={{ borderColor: i === 0 ? accent : "#444", opacity: isLocked ? 0.7 : 1 }} onClick={() => setModal({ type: "profile", user: u })}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span style={{ color: i === 0 ? accent : "#666", fontWeight: 900, fontSize: 18, width: 26, flexShrink: 0 }}>#{i + 1}</span>
                       <Avatar name={u.username} avatarId={u.avatarId} />
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          <span style={{ color: WHITE, fontWeight: 700 }}>{u.username}</span>
+                          <span style={{ color: isLocked ? "#888" : WHITE, fontWeight: 700 }}>{u.username}</span>
+                          {isLocked && <Badge label="🔒" color="#78350f" small />}
                           {u.dishonorable && <Badge label="🏴" color="#8b0000" small />}
                           {m.role !== "member" && <Badge label={m.role === "commissioner" ? "COMM" : "CO-COMM"} color={accent} small />}
                         </div>

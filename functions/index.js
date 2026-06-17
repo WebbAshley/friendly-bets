@@ -62,9 +62,10 @@ const genCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 // ── League creation / joining ────────────────────────────
 exports.createLeague = onCall(async request => {
   const uid = requireAuth(request);
-  const { name, emoji, themeColor, startingMonies, endDate } = request.data || {};
+  const { name, emoji, themeColor, startingMonies, endDate, buyIn, payoutSetting } = request.data || {};
   if (!name || !name.trim()) throw new HttpsError("invalid-argument", "League name required.");
   const monies = Number(startingMonies) || 1000;
+  const buyInAmt = Number(buyIn) || 0;
   const inviteCode = genCode();
 
   const leagueRef = db.collection("leagues").doc();
@@ -75,10 +76,13 @@ exports.createLeague = onCall(async request => {
       startingMonies: monies, endDate: endDate || "",
       commissionerId: uid, coCommissionerIds: [],
       status: "active", seasonEndBehavior: "reset", createdAt: Date.now(),
+      buyIn: buyInAmt, payoutSetting: payoutSetting || "winner_all",
+      buyInLocked: false,
     });
     tx.set(db.doc(`leagueMembers/${leagueRef.id}_${uid}`), {
       leagueId: leagueRef.id, userId: uid, role: "commissioner",
       monies, wins: 0, losses: 0, joinedAt: Date.now(),
+      buyInPaid: true,
     });
   });
   return { leagueId: leagueRef.id, inviteCode };
@@ -101,9 +105,24 @@ exports.joinLeague = onCall(async request => {
     tx.set(memberRef, {
       leagueId: leagueDoc.id, userId: uid, role: "member",
       monies: league.startingMonies || 1000, wins: 0, losses: 0, joinedAt: Date.now(),
+      buyInPaid: false,
     });
+    if (!league.buyInLocked && (league.buyIn || 0) > 0) {
+      tx.update(leagueDoc.ref, { buyInLocked: true });
+    }
   });
   return { leagueId: leagueDoc.id, name: league.name };
+});
+
+exports.markBuyInPaid = onCall(async request => {
+  const uid = requireAuth(request);
+  const { leagueId, userId } = request.data || {};
+  if (!leagueId || !userId) throw new HttpsError("invalid-argument", "leagueId and userId required.");
+  await requireCommissioner(leagueId, uid);
+  const memberRef = db.doc(`leagueMembers/${leagueId}_${userId}`);
+  await memberRef.update({ buyInPaid: true });
+  await sendNotif(userId, "🔓 Your buy-in was confirmed — you're all set to bet!", { type: "buyin_confirmed" });
+  return { ok: true };
 });
 
 // ── Bet creation ──────────────────────────────────────────
@@ -147,8 +166,12 @@ exports.createBet = onCall(async request => {
   const betRef = db.collection("bets").doc();
 
   await db.runTransaction(async tx => {
-    const memberSnap = await tx.get(memberRef);
+    const [memberSnap, leagueSnap] = await Promise.all([tx.get(memberRef), tx.get(db.doc(`leagues/${leagueId}`))]);
     if (!memberSnap.exists) throw new HttpsError("permission-denied", "Not a member of this league.");
+    const league = leagueSnap.data() || {};
+    if ((league.buyIn || 0) > 0 && !memberSnap.data().buyInPaid) {
+      throw new HttpsError("failed-precondition", "🔒 Your buy-in hasn't been confirmed yet. Contact your commissioner.");
+    }
     const balance = memberSnap.data().monies ?? 0;
     if (amt > balance) throw new HttpsError("failed-precondition", `Not enough Monies (have ${balance}).`);
 
