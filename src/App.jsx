@@ -529,13 +529,16 @@ function LeagueLobby({ showToast, myLeagues, onSelectLeague, onLeagueCreated }) 
 }
 
 // ── Create Bet Modal ──────────────────────────────────────
-function CreateBetModal({ users, currentUser, league, myMember, onClose, showToast }) {
+function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, onClose, showToast }) {
   const [form, setForm] = useState({
     type: "1v1", opponentId: "", description: "", stakes: "",
     amount: "", deadline: "", winType: "single", inviteIds: [], anyAction: false,
   });
   const [submitting, setSubmitting] = useState(false);
-  const others = users.filter(u => u.id !== currentUser.id);
+  const leagueMemberIds = new Set((leagueMembers || []).map(m => m.userId));
+  const others = league
+    ? users.filter(u => u.id !== currentUser.id && leagueMemberIds.has(u.id))
+    : [];
   const balance = myMember?.monies ?? 0;
 
   const toggleInvite = id => setForm(f => ({
@@ -588,20 +591,29 @@ function CreateBetModal({ users, currentUser, league, myMember, onClose, showToa
           </Sel>
         )}
         {!form.anyAction && form.type === "1v1" && (
-          <Sel label="Challenge" value={form.opponentId} onChange={e => setForm(f => ({ ...f, opponentId: e.target.value }))}>
-            <option value="">Select opponent...</option>
-            {others.map(u => <option key={u.id} value={u.id}>{u.username}{u.dishonorable ? " 🏴" : ""}</option>)}
-          </Sel>
+          !league
+            ? <div style={{ color: "#aaa", fontSize: 12, marginBottom: 12 }}>Select a league first to see available opponents</div>
+            : others.length === 0
+              ? <div style={{ color: "#aaa", fontSize: 12, marginBottom: 12 }}>No other members yet — share your invite code!</div>
+              : <Sel label="Challenge" value={form.opponentId} onChange={e => setForm(f => ({ ...f, opponentId: e.target.value }))}>
+                  <option value="">Select opponent...</option>
+                  {others.map(u => <option key={u.id} value={u.id}>{u.username}{u.dishonorable ? " 🏴" : ""}</option>)}
+                </Sel>
         )}
         {!form.anyAction && form.type === "pot" && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ color: "#aaa", fontSize: 12, marginBottom: 4, fontWeight: 600 }}>Invite Friends</div>
-            {others.map(u => (
-              <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, color: WHITE, marginBottom: 6, cursor: "pointer" }}>
-                <input type="checkbox" checked={form.inviteIds.includes(u.id)} onChange={() => toggleInvite(u.id)} />
-                {u.username}{u.dishonorable ? " 🏴" : ""}
-              </label>
-            ))}
+            {!league
+              ? <div style={{ color: "#aaa", fontSize: 12 }}>Select a league first to see available opponents</div>
+              : others.length === 0
+                ? <div style={{ color: "#aaa", fontSize: 12 }}>No other members yet — share your invite code!</div>
+                : others.map(u => (
+                    <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, color: WHITE, marginBottom: 6, cursor: "pointer" }}>
+                      <input type="checkbox" checked={form.inviteIds.includes(u.id)} onChange={() => toggleInvite(u.id)} />
+                      {u.username}{u.dishonorable ? " 🏴" : ""}
+                    </label>
+                  ))
+            }
           </div>
         )}
         <Field label="Bet Description" placeholder="e.g. Cowboys win Sunday" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
@@ -1299,7 +1311,7 @@ export default function App() {
         </div>
       )}
 
-      {modal?.type === "create" && <CreateBetModal users={users} currentUser={currentUser} league={selectedLeague} myMember={myMember} onClose={() => setModal(null)} showToast={showToast} />}
+      {modal?.type === "create" && <CreateBetModal users={users} currentUser={currentUser} league={selectedLeague} myMember={myMember} leagueMembers={leagueMembers} onClose={() => setModal(null)} showToast={showToast} />}
       {modal?.type === "profile" && <ProfileModal user={users.find(u => u.id === modal.user.id) || modal.user} currentUser={currentUser} bets={bets} memberData={getMember(modal.user.id)} onClose={() => setModal(null)} showToast={showToast} />}
       {modal?.type === "commissioner" && <CommissionerDashboard league={selectedLeague} currentUser={currentUser} members={leagueMembers} users={users} onClose={() => setModal(null)} showToast={showToast} />}
 
