@@ -6,7 +6,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import {
   getFirestore, doc, setDoc, getDoc, collection, onSnapshot,
-  updateDoc, deleteDoc, addDoc, query, where, documentId,
+  updateDoc, deleteDoc, addDoc, query, where, orderBy, documentId,
   arrayUnion, arrayRemove,
 } from "firebase/firestore";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
@@ -893,6 +893,7 @@ export default function App() {
   const addSubmitting = key => setSubmittingBets(prev => new Set([...prev, key]));
   const delSubmitting = key => setSubmittingBets(prev => { const s = new Set(prev); s.delete(key); return s; });
   const [feedSettledLimit, setFeedSettledLimit] = useState(10);
+  const [inboxItems, setInboxItems] = useState([]);
 
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
@@ -944,7 +945,17 @@ export default function App() {
     });
   }, []);
 
-  // Show in-app notifications when the tab is open
+  // Inbox: load all notifications for current user (sorted newest first)
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsub = onSnapshot(
+      query(collection(db, "notifications"), where("toUserId", "==", currentUser.id), orderBy("createdAt", "desc")),
+      snap => setInboxItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    return unsub;
+  }, [currentUser?.id]);
+
+  // Show in-app toast for new notifications when tab is open (skip marking read so Inbox shows them)
   useEffect(() => {
     if (!currentUser) return;
     let ready = false;
@@ -956,7 +967,6 @@ export default function App() {
           if (change.type !== "added") return;
           const { title, body, icon } = change.doc.data();
           if (Notification.permission === "granted") new Notification(title, { body, icon });
-          updateDoc(change.doc.ref, { read: true });
         });
       }
     );
@@ -1585,6 +1595,54 @@ export default function App() {
           </>
         )}
 
+        {page === "inbox" && (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ color: WHITE, fontWeight: 800, fontSize: 20 }}>📬 Inbox</div>
+              {inboxItems.some(n => !n.read) && (
+                <Btn small variant="ghost" onClick={() => {
+                  inboxItems.filter(n => !n.read).forEach(n => updateDoc(doc(db, "notifications", n.id), { read: true }));
+                }}>Mark all read</Btn>
+              )}
+            </div>
+            {inboxItems.length === 0
+              ? <div style={{ color: "#555", textAlign: "center", padding: 48, fontSize: 16 }}>You're all caught up! 👑</div>
+              : inboxItems.map(n => {
+                const bet = n.betId ? bets.find(b => b.id === n.betId) : null;
+                const isUnread = !n.read;
+                return (
+                  <div key={n.id} style={{ background: isUnread ? BLUE + "18" : SECTION, border: `1px solid ${isUnread ? BLUE + "44" : "#2a2a2c"}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}
+                    onClick={() => { if (isUnread) updateDoc(doc(db, "notifications", n.id), { read: true }); }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: isUnread ? WHITE : "#ddd", fontSize: 13, fontWeight: isUnread ? 700 : 400, lineHeight: 1.4 }}>{n.body}</div>
+                        <div style={{ color: "#555", fontSize: 11, marginTop: 4 }}>{n.createdAt ? new Date(n.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</div>
+                      </div>
+                      {isUnread && <div style={{ width: 8, height: 8, borderRadius: "50%", background: BLUE, flexShrink: 0, marginTop: 4 }} />}
+                    </div>
+                    {bet && (n.type === "challenge") && bet.status === "pending_acceptance" && bet.opponent === currentUser.id && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                        <Btn small onClick={e => { e.stopPropagation(); acceptBet(bet.id); }} disabled={submittingBets.has(`${bet.id}:accept`)}>
+                          {submittingBets.has(`${bet.id}:accept`) ? "Accepting..." : "Accept ✅"}
+                        </Btn>
+                        <Btn small variant="danger" onClick={e => { e.stopPropagation(); declineBet(bet.id); }}>Decline ✗</Btn>
+                      </div>
+                    )}
+                    {bet && n.type === "claim" && bet.status === "claimed" && bet.claimedBy !== currentUser.id && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                        <Btn small variant="success" onClick={e => { e.stopPropagation(); confirmWin(bet.id); }} disabled={submittingBets.has(`${bet.id}:confirm`)}>
+                          {submittingBets.has(`${bet.id}:confirm`) ? "Confirming..." : "Confirm ✅"}
+                        </Btn>
+                        <Btn small variant="danger" onClick={e => { e.stopPropagation(); disputeClaim(bet.id); }}>Dispute ⚠️</Btn>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            }
+          </>
+        )}
+
         {page === "friends" && (
           <>
             <div style={{ color: WHITE, fontWeight: 800, fontSize: 20, marginBottom: 14 }}>👥 Bros</div>
@@ -1626,12 +1684,20 @@ export default function App() {
 
       {/* Tab Bar */}
       <div style={{ background: DEEP, borderTop: "1px solid #222", display: "flex", position: "sticky", bottom: 0, zIndex: 50 }}>
-        {[["feed", "📣 Feed"], ["bets", "💰 Bets"], ["leaderboard", "🏆 Board"], ["friends", "👥 Bros"]].map(([id, label]) => (
-          <button key={id} onClick={() => setPage(id)}
-            style={{ flex: 1, background: "none", border: "none", color: page === id ? accent : "#555", padding: "12px 0", fontSize: 11, fontWeight: 700, cursor: "pointer", borderTop: page === id ? `2px solid ${accent}` : "2px solid transparent", letterSpacing: 0.5 }}>
-            {label}
-          </button>
-        ))}
+        {[["feed", "📣 Feed"], ["bets", "💰 Bets"], ["leaderboard", "🏆 Board"], ["inbox", "📬 Inbox"]].map(([id, label]) => {
+          const inboxUnread = id === "inbox" ? inboxItems.filter(n => !n.read).length : 0;
+          return (
+            <button key={id} onClick={() => setPage(id)}
+              style={{ flex: 1, background: "none", border: "none", color: page === id ? accent : "#555", padding: "12px 0", fontSize: 11, fontWeight: 700, cursor: "pointer", borderTop: page === id ? `2px solid ${accent}` : "2px solid transparent", letterSpacing: 0.5, position: "relative" }}>
+              {label}
+              {inboxUnread > 0 && (
+                <span style={{ position: "absolute", top: 6, right: "calc(50% - 22px)", background: "#dc2626", color: WHITE, borderRadius: "50%", width: 16, height: 16, fontSize: 10, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {inboxUnread > 9 ? "9+" : inboxUnread}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

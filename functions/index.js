@@ -49,10 +49,11 @@ async function usernameOf(uid) {
   return snap.data()?.username || "Someone";
 }
 
-async function sendNotif(toUserId, body) {
+async function sendNotif(toUserId, body, extra = {}) {
   if (!toUserId) return;
   await db.collection("notifications").add({
     toUserId, title: "Bro-Bets 👑", body, icon: "/logo.svg", createdAt: Date.now(), read: false,
+    ...extra,
   });
 }
 
@@ -177,7 +178,7 @@ exports.createBet = onCall(async request => {
 
   if (!anyAction && betType === "1v1" && opponentId) {
     const creatorName = await usernameOf(uid);
-    await sendNotif(opponentId, `⚔️ ${creatorName} challenged you to a bet!`);
+    await sendNotif(opponentId, `⚔️ ${creatorName} challenged you to a bet!`, { type: "challenge", betId: betRef.id });
   }
   return { betId: betRef.id };
 });
@@ -231,9 +232,9 @@ exports.acceptBet = onCall(async request => {
 
   const accepter = await usernameOf(uid);
   if (result.isPotJoin) {
-    await sendNotif(result.creatorId, `🪣 ${accepter} joined the pot!`);
+    await sendNotif(result.creatorId, `🪣 ${accepter} joined the pot!`, { type: "pot_joined", betId });
   } else {
-    await sendNotif(result.creatorId, `🤝 ${accepter} accepted your bet challenge!`);
+    await sendNotif(result.creatorId, `🤝 ${accepter} accepted your bet challenge!`, { type: "accepted", betId });
   }
   return { ok: true };
 });
@@ -277,7 +278,7 @@ exports.claimWin = onCall(async request => {
   });
 
   const claimer = await usernameOf(uid);
-  await sendNotif(result.otherId, `🏆 ${claimer} claimed the win — confirm or dispute!`);
+  await sendNotif(result.otherId, `🏆 ${claimer} claimed the win — confirm or dispute!`, { type: "claim", betId });
   return { ok: true };
 });
 
@@ -467,7 +468,7 @@ exports.giftMonies = onCall(async request => {
     tx.update(memberRef, { monies: next });
   });
 
-  if (amt > 0) await sendNotif(userId, `💰 Commissioner sent you ${amt} Monies!`);
+  if (amt > 0) await sendNotif(userId, `💰 Commissioner sent you ${amt} Monies!`, { type: "gift" });
   return { ok: true };
 });
 
