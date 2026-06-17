@@ -656,14 +656,37 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
         <div style={{ marginBottom: 12 }}>
           <div style={{ color: "#aaa", fontSize: 12, fontWeight: 600, marginBottom: 8 }}>💰 Monies Wagered</div>
           <div style={{ display: "flex", alignItems: "center", marginBottom: 10, position: "relative", paddingLeft: 4 }}>
-            {[["🔵", 25, "#0070C0"], ["🔴", 100, "#dc2626"], ["⚫", 200, "#3a3a3c"], ["🟡", 500, "#ca8a04"]].map(([emoji, val, color], idx) => {
+            {[
+              { val: 25,  color: "#1565c0", edge: "#0d3b7a" },
+              { val: 100, color: "#c62828", edge: "#7b1111" },
+              { val: 200, color: "#424242", edge: "#1a1a1a" },
+              { val: 500, color: "#b8860b", edge: "#7a5800" },
+            ].map(({ val, color, edge }, idx) => {
               const chipAmt = Number(form.amount) || 0;
               const isSelected = chipAmt > 0 && chipAmt % val === 0;
               return (
                 <button key={val} onClick={() => setForm(f => ({ ...f, amount: String((Number(f.amount) || 0) + val) }))}
-                  style={{ width: 52, height: 52, borderRadius: "50%", background: color, border: `3px solid ${isSelected ? WHITE : color}`, color: WHITE, cursor: "pointer", boxShadow: "0 3px 8px rgba(0,0,0,.5)", marginLeft: idx === 0 ? 0 : -10, zIndex: idx, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, fontWeight: 900 }}>
-                  <span style={{ fontSize: 14, lineHeight: 1 }}>{emoji}</span>
-                  <span style={{ fontSize: 10, lineHeight: 1, fontWeight: 800 }}>{val}</span>
+                  style={{
+                    position: "relative", width: 62, height: 62, borderRadius: "50%", padding: 0,
+                    background: `repeating-conic-gradient(${color} 0deg 13deg, rgba(255,255,255,0.55) 13deg 15deg, ${color} 15deg 28deg, rgba(255,255,255,0.55) 28deg 30deg)`,
+                    border: `3px solid ${isSelected ? WHITE : edge}`,
+                    cursor: "pointer",
+                    boxShadow: isSelected
+                      ? `0 0 0 3px ${WHITE}, 0 6px 16px rgba(0,0,0,0.7)`
+                      : `0 4px 14px rgba(0,0,0,0.7), inset 0 1px 2px rgba(255,255,255,0.15)`,
+                    marginLeft: idx === 0 ? 0 : -14,
+                    zIndex: isSelected ? 10 : idx + 1,
+                    flexShrink: 0,
+                    transition: "box-shadow 0.1s, z-index 0s",
+                  }}>
+                  {/* inner face */}
+                  <div style={{
+                    position: "absolute", inset: 7, borderRadius: "50%", background: color,
+                    boxShadow: "inset 0 1px 4px rgba(0,0,0,0.5), 0 0 0 1.5px rgba(255,255,255,0.2)",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1,
+                  }}>
+                    <span style={{ color: WHITE, fontSize: 11, fontWeight: 900, lineHeight: 1, textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>{val}</span>
+                  </div>
                 </button>
               );
             })}
