@@ -1,5 +1,6 @@
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
 admin.initializeApp();
 
@@ -513,4 +514,33 @@ exports.newSeason = onCall(async request => {
   batch.update(db.doc(`leagues/${leagueId}`), { status: "active", endDate: "" });
   await batch.commit();
   return { ok: true };
+});
+
+// ── Weekly Standings Snapshot — every Monday midnight CST ─
+exports.weeklySnapshot = onSchedule("every monday 06:00", async () => {
+  const leaguesSnap = await db.collection("leagues").where("status", "==", "active").get();
+  const weekLabel = new Date().toISOString().slice(0, 10);
+
+  await Promise.all(leaguesSnap.docs.map(async leagueDoc => {
+    const leagueId = leagueDoc.id;
+    const starting = leagueDoc.data().startingMonies || 1000;
+
+    const membersSnap = await db.collection("leagueMembers").where("leagueId", "==", leagueId).get();
+    if (membersSnap.empty) return;
+
+    const standings = membersSnap.docs
+      .map(d => ({ userId: d.data().userId, monies: d.data().monies ?? 0, wins: d.data().wins || 0, losses: d.data().losses || 0 }))
+      .sort((a, b) => b.monies - a.monies);
+
+    const snapshotRef = db.doc(`leagues/${leagueId}/weeklySnapshots/${weekLabel}`);
+    await snapshotRef.set({ weekLabel, standings, createdAt: Date.now() });
+
+    const winner = standings[0];
+    if (winner) {
+      await db.doc(`users/${winner.userId}`).update({
+        weeklyBadges: FieldValue.arrayUnion({ week: weekLabel, leagueId }),
+      });
+      await sendNotif(winner.userId, `🏅 You won this week in ${leagueDoc.data().name}! Nice work!`, { type: "weekly_win", leagueId });
+    }
+  }));
 });

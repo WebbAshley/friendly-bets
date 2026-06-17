@@ -983,6 +983,8 @@ export default function App() {
   const delSubmitting = key => setSubmittingBets(prev => { const s = new Set(prev); s.delete(key); return s; });
   const [feedSettledLimit, setFeedSettledLimit] = useState(10);
   const [inboxItems, setInboxItems] = useState([]);
+  const [weeklySnapshots, setWeeklySnapshots] = useState([]);
+  const [snapshotWeek, setSnapshotWeek] = useState(null);
 
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
@@ -1033,6 +1035,19 @@ export default function App() {
       setAuthReady(true);
     });
   }, []);
+
+  // Weekly snapshots for selected league
+  useEffect(() => {
+    if (!selectedLeague) return;
+    const unsub = onSnapshot(
+      collection(db, "leagues", selectedLeague.id, "weeklySnapshots"),
+      snap => {
+        const snaps = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.weekLabel.localeCompare(a.weekLabel));
+        setWeeklySnapshots(snaps);
+      }
+    );
+    return unsub;
+  }, [selectedLeague?.id]);
 
   // Inbox: load all notifications for current user (sorted newest first)
   useEffect(() => {
@@ -1692,9 +1707,48 @@ export default function App() {
                 <span style={{ fontSize: 28 }}>🏦</span>
               </div>
             )}
-            {sortedMembers.length === 0
+            {weeklySnapshots.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ color: "#555", fontSize: 11, fontWeight: 700 }}>📅 WEEK OF</span>
+                  <select value={snapshotWeek || ""} onChange={e => setSnapshotWeek(e.target.value || null)}
+                    style={{ background: SECTION, border: "1px solid #444", borderRadius: 6, color: WHITE, padding: "3px 8px", fontSize: 11 }}>
+                    <option value="">Current</option>
+                    {weeklySnapshots.map(s => <option key={s.weekLabel} value={s.weekLabel}>{s.weekLabel}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+            {snapshotWeek && (() => {
+              const snap = weeklySnapshots.find(s => s.weekLabel === snapshotWeek);
+              const prevIdx = weeklySnapshots.findIndex(s => s.weekLabel === snapshotWeek);
+              const prevSnap = weeklySnapshots[prevIdx + 1];
+              if (!snap) return null;
+              return snap.standings.map((entry, i) => {
+                const u = getUser(entry.userId);
+                if (!u) return null;
+                const prevRank = prevSnap ? prevSnap.standings.findIndex(p => p.userId === entry.userId) : -1;
+                const arrow = prevRank === -1 ? "" : i < prevRank ? "↑" : i > prevRank ? "↓" : "→";
+                const arrowColor = arrow === "↑" ? "#22c55e" : arrow === "↓" ? "#f87171" : "#aaa";
+                return (
+                  <Card key={entry.userId} style={{ borderColor: i === 0 ? accent : "#444" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ color: i === 0 ? accent : "#666", fontWeight: 900, fontSize: 18, width: 26 }}>#{i + 1}</span>
+                      {arrow && <span style={{ color: arrowColor, fontWeight: 900, fontSize: 14, minWidth: 14 }}>{arrow}</span>}
+                      <Avatar name={u.username} avatarId={u.avatarId} />
+                      <div style={{ flex: 1 }}>
+                        <span style={{ color: WHITE, fontWeight: 700 }}>{u.username}</span>
+                        {i === 0 && <span style={{ marginLeft: 6 }}>🏅</span>}
+                        <div style={{ color: "#aaa", fontSize: 12 }}>{entry.wins}W — {entry.losses}L · 💰 {entry.monies}</div>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              });
+            })()}
+            {!snapshotWeek && sortedMembers.length === 0
               ? <div style={{ color: "#555", textAlign: "center", padding: 32 }}>No members yet.</div>
-              : sortedMembers.map((m, i) => {
+              : !snapshotWeek && sortedMembers.map((m, i) => {
                 const u = getUser(m.userId);
                 if (!u) return null;
                 const total = (m.wins || 0) + (m.losses || 0);
@@ -1729,6 +1783,7 @@ export default function App() {
         )}
 
         {page === "inbox" && (
+
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ color: WHITE, fontWeight: 800, fontSize: 20 }}>📬 Inbox</div>
