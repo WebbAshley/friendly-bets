@@ -687,10 +687,42 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
 }
 
 // ── Profile Modal ─────────────────────────────────────────
-function ProfileModal({ user, currentUser, bets, memberData, onClose, showToast }) {
+function ProfileModal({ user, currentUser, bets, users, memberData, onClose, showToast }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ venmo: user.venmo || "", cashapp: user.cashapp || "", zelle: user.zelle || "", avatarId: user.avatarId || "" });
   const isSelf = user.id === currentUser.id;
+
+  // Compute stats from bet history
+  const userBets = bets.filter(b =>
+    b.status === "settled" && (b.creator === user.id || b.opponent === user.id || b.participants?.some(p => p.userId === user.id))
+  ).sort((a, b) => a.createdAt - b.createdAt);
+
+  let curStreak = 0, bestStreak = 0, tmp = 0, biggestWin = 0;
+  userBets.forEach(b => {
+    const won = b.winner === user.id;
+    if (won) {
+      tmp++; bestStreak = Math.max(bestStreak, tmp);
+      if (b.amount > biggestWin) biggestWin = b.amount;
+    } else { tmp = 0; }
+  });
+  for (let i = userBets.length - 1; i >= 0; i--) {
+    if (userBets[i].winner === user.id) curStreak++;
+    else break;
+  }
+
+  const typeCounts = { "1v1": 0, pot: 0, any: 0 };
+  userBets.forEach(b => { if (b.anyAction) typeCounts.any++; else typeCounts[b.type] = (typeCounts[b.type] || 0) + 1; });
+  const favType = Object.entries(typeCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "—";
+  const favTypeLabel = { "1v1": "1v1", pot: "Group Pot", any: "Any Action?" }[favType] || "—";
+
+  const rivalCounts = {};
+  userBets.forEach(b => {
+    if (b.type === "1v1") {
+      const opp = b.creator === user.id ? b.opponent : b.creator;
+      if (opp) rivalCounts[opp] = (rivalCounts[opp] || 0) + 1;
+    }
+  });
+  const rivalId = Object.entries(rivalCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || null;
 
   const save = async () => {
     await updateDoc(doc(db, "users", currentUser.id), form);
@@ -730,7 +762,7 @@ function ProfileModal({ user, currentUser, bets, memberData, onClose, showToast 
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
           {[["WINS", user.wins, BLUE], ["LOSSES", user.losses, "#aaa"]].map(([l, v, c]) => (
             <div key={l} style={{ textAlign: "center", flex: 1, background: "#111", borderRadius: 8, padding: 10 }}>
               <div style={{ color: c, fontWeight: 800, fontSize: 22 }}>{v}</div>
@@ -738,6 +770,31 @@ function ProfileModal({ user, currentUser, bets, memberData, onClose, showToast 
             </div>
           ))}
         </div>
+
+        {userBets.length > 0 && (
+          <div style={{ background: "#111", borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+            <div style={{ color: "#aaa", fontSize: 11, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>📊 STATS</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px" }}>
+              {[
+                ["🔥 Win Streak", curStreak > 0 ? `${curStreak}W` : "—"],
+                ["🏅 Best Streak", bestStreak > 0 ? `${bestStreak}W` : "—"],
+                ["💰 Biggest Win", biggestWin > 0 ? `+${biggestWin}` : "—"],
+                ["🎯 Fav Type", favTypeLabel],
+              ].map(([label, val]) => (
+                <div key={label} style={{ display: "flex", flexDirection: "column" }}>
+                  <span style={{ color: "#555", fontSize: 10 }}>{label}</span>
+                  <span style={{ color: WHITE, fontSize: 13, fontWeight: 700 }}>{val}</span>
+                </div>
+              ))}
+            </div>
+            {rivalId && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #222" }}>
+                <span style={{ color: "#555", fontSize: 10 }}>⚔️ RIVAL</span>
+                <span style={{ color: "#f87171", fontSize: 13, fontWeight: 700, marginLeft: 8 }}>{(users || []).find(u => u.id === rivalId)?.username || rivalId}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {editing ? (
           <>
@@ -1609,7 +1666,7 @@ export default function App() {
       )}
 
       {modal?.type === "create" && <CreateBetModal users={users} currentUser={currentUser} league={selectedLeague} myMember={myMember} leagueMembers={leagueMembers} onClose={() => setModal(null)} showToast={showToast} piggyback={modal.piggyback} />}
-      {modal?.type === "profile" && <ProfileModal user={users.find(u => u.id === modal.user.id) || modal.user} currentUser={currentUser} bets={bets} memberData={getMember(modal.user.id)} onClose={() => setModal(null)} showToast={showToast} />}
+      {modal?.type === "profile" && <ProfileModal user={users.find(u => u.id === modal.user.id) || modal.user} currentUser={currentUser} bets={bets} users={users} memberData={getMember(modal.user.id)} onClose={() => setModal(null)} showToast={showToast} />}
       {modal?.type === "commissioner" && <CommissionerDashboard league={selectedLeague} currentUser={currentUser} members={leagueMembers} users={users} onClose={() => setModal(null)} showToast={showToast} />}
 
       {/* Nav */}
