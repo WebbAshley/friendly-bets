@@ -197,7 +197,11 @@ exports.acceptBet = onCall(async request => {
 
     const isOpenClaim = bet.anyAction && bet.status === "open";
     const isDirectAccept = !bet.anyAction && bet.status === "pending_acceptance" && bet.opponent === uid;
-    if (!isOpenClaim && !isDirectAccept) {
+    const participants = bet.participants || [];
+    const potIdx = participants.findIndex(p => p.userId === uid && !p.paid);
+    const isPotJoin = bet.type === "pot" && potIdx !== -1 && bet.status === "active";
+
+    if (!isOpenClaim && !isDirectAccept && !isPotJoin) {
       throw new HttpsError("failed-precondition", "This bet can no longer be accepted.");
     }
 
@@ -208,16 +212,29 @@ exports.acceptBet = onCall(async request => {
     const balance = memberSnap.data().monies ?? 0;
     if (amt > balance) throw new HttpsError("failed-precondition", `Not enough Monies (have ${balance}).`);
 
+    if (isPotJoin) {
+      if (amt > 0) tx.update(memberRef, { monies: FieldValue.increment(-amt) });
+      const updatedParticipants = participants.map((p, i) =>
+        i === potIdx ? { ...p, paid: true } : p
+      );
+      tx.update(betRef, { participants: updatedParticipants });
+      return { creatorId: bet.creator, isPotJoin: true };
+    }
+
     if (amt > 0) tx.update(memberRef, { monies: FieldValue.increment(-amt) });
     tx.update(betRef, isOpenClaim
       ? { status: "active", opponent: uid, anyAction: false }
       : { status: "active" });
 
-    return { creatorId: bet.creator };
+    return { creatorId: bet.creator, isPotJoin: false };
   });
 
   const accepter = await usernameOf(uid);
-  await sendNotif(result.creatorId, `🤝 ${accepter} accepted your bet challenge!`);
+  if (result.isPotJoin) {
+    await sendNotif(result.creatorId, `🪣 ${accepter} joined the pot!`);
+  } else {
+    await sendNotif(result.creatorId, `🤝 ${accepter} accepted your bet challenge!`);
+  }
   return { ok: true };
 });
 
@@ -392,11 +409,7 @@ exports.votePotWinner = onCall(async request => {
 
     if (majority) {
       const wId = majority[0];
-      // NOTE: pot participants are never actually charged on invite (see createBet) —
-      // only the creator's share is deducted up front. The winner is paid the full
-      // stated pot here to preserve existing behavior; closing this requires a separate
-      // "accept pot invite + charge" flow, which is a feature change, not a security fix.
-      const totalPot = (bet.participants || []).reduce((s, p) => s + (p.amount || 0), 0);
+      const totalPot = (bet.participants || []).filter(p => p.paid).reduce((s, p) => s + (p.amount || 0), 0);
 
       tx.update(betRef, { resolveVotes: nv, status: "settled", winner: wId });
       tx.update(db.doc(`users/${wId}`), { wins: FieldValue.increment(1) });

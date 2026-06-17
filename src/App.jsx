@@ -1172,7 +1172,7 @@ export default function App() {
       settled: "Settled", resolve_voting: "Voting", open: "Any Action?",
     }[bet.status];
 
-    const potTotal = bet.participants?.reduce((s, p) => s + (p.amount || 0), 0) || 0;
+    const potTotal = bet.participants?.filter(p => p.paid).reduce((s, p) => s + (p.amount || 0), 0) || 0;
     const statTiles = [
       {
         label: "WAGER",
@@ -1297,6 +1297,11 @@ export default function App() {
               </Btn>
             )}
             {isOpen && isCreator && <span style={{ color: "#666", fontSize: 12 }}>Waiting for someone to claim...</span>}
+            {bet.type === "pot" && bet.status === "active" && bet.participants?.some(p => p.userId === currentUser.id && !p.paid) && (
+              <Btn small onClick={() => acceptBet(bet.id)} disabled={submittingBets.has(`${bet.id}:accept`)} style={{ opacity: submittingBets.has(`${bet.id}:accept`) ? 0.6 : 1 }}>
+                {submittingBets.has(`${bet.id}:accept`) ? "Joining..." : "Join Pot 🪣"}
+              </Btn>
+            )}
             {bet.status === "pending_acceptance" && !isCreator && bet.opponent === currentUser.id && (
               <><Btn small onClick={() => acceptBet(bet.id)} disabled={submittingBets.has(`${bet.id}:accept`)} style={{ opacity: submittingBets.has(`${bet.id}:accept`) ? 0.6 : 1 }}>
                 {submittingBets.has(`${bet.id}:accept`) ? "Accepting..." : "Accept ✅"}
