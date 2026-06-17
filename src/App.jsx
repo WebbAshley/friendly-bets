@@ -360,7 +360,7 @@ function OnboardingSlides({ slides, onDismiss }) {
 function LoginPage({ showToast }) {
   const [mode, setMode] = useState("login");
   const [lf, setLf] = useState({ username: "", password: "" });
-  const [sf, setSf] = useState({ username: "", password: "", venmo: "", cashapp: "", zelle: "", avatarId: "" });
+  const [sf, setSf] = useState({ username: "", password: "", venmo: "", cashapp: "", zelle: "", avatarId: "", phoneNumber: "" });
   const [loading, setLoading] = useState(false);
 
   const login = async () => {
@@ -378,16 +378,18 @@ function LoginPage({ showToast }) {
     if (!sf.username) return showToast("Username required", "error");
     if (!sf.password || sf.password.length < 6) return showToast("Password must be 6+ characters", "error");
     setLoading(true);
+    const phone = (sf.phoneNumber || "").replace(/\D/g, "");
+    if (sf.phoneNumber && phone.length !== 10 && phone.length !== 11) {
+      setLoading(false);
+      return showToast("Enter a valid US phone number", "error");
+    }
     try {
-      // Username uniqueness is enforced by Auth itself: email is derived
-      // from username, so a taken username throws auth/email-already-in-use
-      // below. A pre-check Firestore read here can't run pre-auth under the
-      // new security rules (reads require isSignedIn()).
       const cred = await createUserWithEmailAndPassword(auth, `${sf.username.toLowerCase()}@brobets.app`, sf.password);
       await setDoc(doc(db, "users", cred.user.uid), {
         id: cred.user.uid, username: sf.username,
         venmo: sf.venmo || "", cashapp: sf.cashapp || "", zelle: sf.zelle || "",
         avatarId: sf.avatarId || "", wins: 0, losses: 0, dishonorable: false, dishonorableDebts: [],
+        phoneNumber: phone.length >= 10 ? phone : "",
       });
       showToast(`Welcome, ${sf.username}! Let's Bet Bro! 🤝`);
     } catch (e) {
@@ -421,6 +423,10 @@ function LoginPage({ showToast }) {
             <>
               <Field label="Username" placeholder="BroName" value={sf.username} onChange={e => setSf(f => ({ ...f, username: e.target.value }))} />
               <Field label="Password" type="password" placeholder="6+ characters" value={sf.password} onChange={e => setSf(f => ({ ...f, password: e.target.value }))} />
+              <div style={{ background: "#451a03", border: "1px solid #92400e", borderRadius: 8, padding: "9px 12px", marginBottom: 12, color: "#fbbf24", fontSize: 12 }}>
+                ⚠️ Add your phone number — it's the only way to receive notifications
+              </div>
+              <Field label="📱 Phone Number (optional)" type="tel" placeholder="(555) 867-5309" value={sf.phoneNumber} onChange={e => setSf(f => ({ ...f, phoneNumber: e.target.value }))} />
               <Field label="Venmo (optional)" placeholder="@username" value={sf.venmo} onChange={e => setSf(f => ({ ...f, venmo: e.target.value }))} />
               <Field label="CashApp (optional)" placeholder="$username" value={sf.cashapp} onChange={e => setSf(f => ({ ...f, cashapp: e.target.value }))} />
               <Field label="Zelle (optional)" placeholder="phone or email" value={sf.zelle} onChange={e => setSf(f => ({ ...f, zelle: e.target.value }))} />
@@ -689,7 +695,7 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
 // ── Profile Modal ─────────────────────────────────────────
 function ProfileModal({ user, currentUser, bets, users, memberData, onClose, showToast }) {
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ venmo: user.venmo || "", cashapp: user.cashapp || "", zelle: user.zelle || "", avatarId: user.avatarId || "" });
+  const [form, setForm] = useState({ venmo: user.venmo || "", cashapp: user.cashapp || "", zelle: user.zelle || "", avatarId: user.avatarId || "", phoneNumber: user.phoneNumber || "" });
   const isSelf = user.id === currentUser.id;
 
   // Compute stats from bet history
@@ -799,6 +805,7 @@ function ProfileModal({ user, currentUser, bets, users, memberData, onClose, sho
         {editing ? (
           <>
             <AvatarPicker value={form.avatarId} onChange={id => setForm(f => ({ ...f, avatarId: id }))} />
+            <Field label="📱 Phone Number (US)" type="tel" placeholder="(555) 867-5309" value={form.phoneNumber} onChange={e => setForm(f => ({ ...f, phoneNumber: e.target.value }))} />
             <Field label="Venmo" placeholder="@username" value={form.venmo} onChange={e => setForm(f => ({ ...f, venmo: e.target.value }))} />
             <Field label="CashApp" placeholder="$username" value={form.cashapp} onChange={e => setForm(f => ({ ...f, cashapp: e.target.value }))} />
             <Field label="Zelle" placeholder="phone or email" value={form.zelle} onChange={e => setForm(f => ({ ...f, zelle: e.target.value }))} />
@@ -809,8 +816,13 @@ function ProfileModal({ user, currentUser, bets, users, memberData, onClose, sho
           </>
         ) : (
           <>
+            {isSelf && !user.phoneNumber && (
+              <div style={{ background: "#451a03", border: "1px solid #92400e", borderRadius: 8, padding: "9px 12px", marginBottom: 12, color: "#fbbf24", fontSize: 12 }}>
+                ⚠️ Add your phone number — it's the only way to receive notifications
+              </div>
+            )}
             <div style={{ marginBottom: 14 }}>
-              {[["Venmo", user.venmo], ["CashApp", user.cashapp], ["Zelle", user.zelle]].map(([label, val]) => (
+              {[["📱 Phone", user.phoneNumber], ["Venmo", user.venmo], ["CashApp", user.cashapp], ["Zelle", user.zelle]].map(([label, val]) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #333" }}>
                   <span style={{ color: "#aaa", fontSize: 13 }}>{label}</span>
                   <span style={{ color: val ? WHITE : "#555", fontSize: 13 }}>{val || "Not set"}</span>
