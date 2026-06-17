@@ -55,6 +55,16 @@ service cloud.firestore {
       allow update: if isCoCommissioner(leagueId) &&
         notModifying(['commissionerId', 'startingMonies']);
       allow delete: if false;
+
+      match /weeklySnapshots/{snapId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      match /awards/{awardId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
     }
 
     // ── League Members (holds Monies balances) ────────────────
