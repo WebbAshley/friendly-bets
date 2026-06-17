@@ -892,6 +892,7 @@ export default function App() {
   const [submittingBets, setSubmittingBets] = useState(new Set());
   const addSubmitting = key => setSubmittingBets(prev => new Set([...prev, key]));
   const delSubmitting = key => setSubmittingBets(prev => { const s = new Set(prev); s.delete(key); return s; });
+  const [feedSettledLimit, setFeedSettledLimit] = useState(10);
 
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
@@ -1147,7 +1148,7 @@ export default function App() {
   };
 
   // ── BetCard ──
-  const BetCard = ({ bet, inFeed }) => {
+  const BetCard = ({ bet, inFeed, highlight }) => {
     const isCreator = bet.creator === currentUser.id;
     const isWinner = bet.winner === currentUser.id;
     const creator = getUser(bet.creator);
@@ -1203,7 +1204,7 @@ export default function App() {
     ];
 
     return (
-      <Card style={{ background: DARK, borderColor: isOpen ? accent : "#3a3a3c", borderWidth: isOpen ? 2 : 1, padding: 0, overflow: "hidden" }}>
+      <Card style={{ background: DARK, borderColor: isOpen ? accent : highlight ? BLUE : "#3a3a3c", borderWidth: isOpen ? 2 : 1, borderLeft: highlight ? `4px solid ${BLUE}` : undefined, padding: 0, overflow: "hidden" }}>
 
         {/* 1 — Header bar */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", borderBottom: "1px solid #2a2a2c" }}>
@@ -1400,9 +1401,25 @@ export default function App() {
   const accent = selectedLeague.themeColor || BLUE;
   const starting = selectedLeague?.startingMonies || 1000;
   const sortedMembers = [...leagueMembers].sort((a, b) => ((b.monies ?? 0) - starting) - ((a.monies ?? 0) - starting));
-  const openBets = bets.filter(b => b.anyAction && b.status === "open");
-  const feedBets = [...bets].sort((a, b) => b.createdAt - a.createdAt).filter(b => !(b.anyAction && b.status === "open"));
   const pinnedAnnouncements = announcements.filter(a => a.pinned);
+
+  // Feed tiers
+  const now48h = Date.now() - 48 * 60 * 60 * 1000;
+  const feedTier1 = bets.filter(b =>
+    (b.status === "pending_acceptance" && b.opponent === currentUser.id) ||
+    (b.status === "claimed" && b.claimedBy !== currentUser.id && (b.creator === currentUser.id || b.opponent === currentUser.id)) ||
+    (b.type === "pot" && b.status === "active" && b.participants?.some(p => p.userId === currentUser.id && !p.paid))
+  ).sort((a, b) => b.createdAt - a.createdAt);
+  const tier1Ids = new Set(feedTier1.map(b => b.id));
+
+  const feedTier2 = bets.filter(b => !tier1Ids.has(b.id) && b.status !== "settled").sort((a, b) => b.createdAt - a.createdAt);
+  const tier2Ids = new Set(feedTier2.map(b => b.id));
+
+  const feedTier3 = bets.filter(b => b.status === "settled" && b.createdAt >= now48h).sort((a, b) => b.createdAt - a.createdAt);
+  const tier3Ids = new Set(feedTier3.map(b => b.id));
+
+  const feedTier4All = bets.filter(b => b.status === "settled" && !tier3Ids.has(b.id)).sort((a, b) => b.createdAt - a.createdAt);
+  const feedTier4 = feedTier4All.slice(0, feedSettledLimit);
 
   return (
     <div style={{ background: DARK, minHeight: "100vh", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column" }}>
@@ -1468,19 +1485,45 @@ export default function App() {
               </div>
             ))}
 
-            {openBets.length > 0 && (
-              <div style={{ marginBottom: 4 }}>
-                <div style={{ color: accent, fontWeight: 800, fontSize: 12, marginBottom: 8, letterSpacing: 1 }}>⚡ ANY ACTION? — OPEN BETS</div>
-                {openBets.map(b => <BetCard key={b.id} bet={b} inFeed />)}
-                <div style={{ borderTop: "1px solid #333", marginBottom: 14 }} />
-              </div>
+            {feedTier1.length > 0 && (
+              <>
+                <div style={{ color: BLUE, fontWeight: 800, fontSize: 11, marginBottom: 8, letterSpacing: 1 }}>⚡ YOUR TURN — ACTION REQUIRED</div>
+                {feedTier1.map(b => <BetCard key={b.id} bet={b} inFeed highlight />)}
+                <div style={{ borderTop: "1px solid #1a2a3a", marginBottom: 14 }} />
+              </>
             )}
 
-            <div style={{ color: "#555", fontWeight: 700, fontSize: 11, marginBottom: 10, letterSpacing: 1 }}>LEAGUE FEED</div>
-            {feedBets.length === 0
-              ? <div style={{ color: "#555", textAlign: "center", padding: 32 }}>No bets yet. Create one! 💰</div>
-              : feedBets.map(b => <BetCard key={b.id} bet={b} inFeed />)
-            }
+            {feedTier2.length > 0 && (
+              <>
+                <div style={{ color: "#555", fontWeight: 700, fontSize: 11, marginBottom: 8, letterSpacing: 1 }}>🔥 LIVE BETS</div>
+                {feedTier2.map(b => <BetCard key={b.id} bet={b} inFeed />)}
+                <div style={{ borderTop: "1px solid #333", marginBottom: 14 }} />
+              </>
+            )}
+
+            {feedTier3.length > 0 && (
+              <>
+                <div style={{ color: "#555", fontWeight: 700, fontSize: 11, marginBottom: 8, letterSpacing: 1 }}>✅ RECENTLY SETTLED</div>
+                {feedTier3.map(b => <BetCard key={b.id} bet={b} inFeed />)}
+                <div style={{ borderTop: "1px solid #333", marginBottom: 14 }} />
+              </>
+            )}
+
+            {feedTier4.length > 0 && (
+              <>
+                <div style={{ color: "#555", fontWeight: 700, fontSize: 11, marginBottom: 8, letterSpacing: 1 }}>📁 SETTLED HISTORY</div>
+                {feedTier4.map(b => <BetCard key={b.id} bet={b} inFeed />)}
+                {feedTier4All.length > feedSettledLimit && (
+                  <div style={{ textAlign: "center", marginTop: 8, marginBottom: 16 }}>
+                    <Btn small variant="outline" onClick={() => setFeedSettledLimit(l => l + 10)}>Load more ({feedTier4All.length - feedSettledLimit} remaining)</Btn>
+                  </div>
+                )}
+              </>
+            )}
+
+            {feedTier1.length === 0 && feedTier2.length === 0 && feedTier3.length === 0 && feedTier4.length === 0 && (
+              <div style={{ color: "#555", textAlign: "center", padding: 32 }}>No bets yet. Create one! 💰</div>
+            )}
           </>
         )}
 
