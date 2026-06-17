@@ -533,10 +533,10 @@ const RISK_CHIPS = [
   "🌮 Buy Tacos", "🍺 Buy a Round", "👶 Social Media Post", "🤐 Loser Goes Silent for 24hrs",
 ];
 
-function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, onClose, showToast }) {
+function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, onClose, showToast, piggyback }) {
   const [form, setForm] = useState({
-    type: "1v1", opponentId: "", description: "", stakeChips: [], stakesCustom: "",
-    amount: "", deadline: "", winType: "single", inviteIds: [], anyAction: false,
+    type: "1v1", opponentId: "", description: piggyback?.description || "", stakeChips: [], stakesCustom: "",
+    amount: "", deadline: "", winType: "single", inviteIds: [], anyAction: piggyback ? true : false,
   });
   const [submitting, setSubmitting] = useState(false);
   const leagueMemberIds = new Set((leagueMembers || []).map(m => m.userId));
@@ -562,7 +562,7 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
         leagueId: league.id, type: form.type, opponentId: form.opponentId,
         description: form.description, stakes: stakeParts.join(", "), amount: amt,
         deadline: form.deadline, winType: form.winType, inviteIds: form.inviteIds,
-        anyAction: form.anyAction,
+        anyAction: form.anyAction, parentBetId: piggyback?.parentBetId || null,
       });
       onClose();
       showToast(form.anyAction ? "⚡ Any Action? posted to feed!" : "Bet created! 💰");
@@ -1226,6 +1226,7 @@ export default function App() {
     }[bet.status];
 
     const potTotal = bet.participants?.filter(p => p.paid).reduce((s, p) => s + (p.amount || 0), 0) || 0;
+    const linkedBets = inFeed ? bets.filter(b => b.id !== bet.id && (b.parentBetId === bet.id || (bet.parentBetId && b.parentBetId === bet.parentBetId))) : [];
     const statTiles = [
       {
         label: "WAGER",
@@ -1381,6 +1382,9 @@ export default function App() {
             {bet.type === "pot" && (bet.status === "active" || bet.status === "resolve_voting") && isCreator && (
               <Btn small variant="outline" onClick={() => startPotVote(bet.id)}>Start Vote 🗳️</Btn>
             )}
+            {inFeed && bet.status !== "settled" && (
+              <Btn small variant="ghost" onClick={() => setModal({ type: "create", piggyback: { description: bet.description, parentBetId: bet.id } })}>Piggyback 🐷</Btn>
+            )}
             {bet.type === "pot" && bet.status === "resolve_voting" && !bet.resolveVotes?.[currentUser.id] && (
               <div style={{ width: "100%" }}>
                 <div style={{ color: "#888", fontSize: 12, marginBottom: 6 }}>Vote for winner:</div>
@@ -1417,6 +1421,24 @@ export default function App() {
           )}
 
         </div>
+
+        {/* Piggyback chain */}
+        {linkedBets.length > 0 && (
+          <div style={{ margin: "0 14px", borderTop: "1px solid #2a2a2c", paddingTop: 8, marginTop: 4 }}>
+            <div style={{ color: "#666", fontSize: 10, fontWeight: 700, letterSpacing: 0.5, marginBottom: 5 }}>🐷 PIGGYBACKED ({linkedBets.length})</div>
+            {linkedBets.map(lb => {
+              const lbCreator = getUser(lb.creator);
+              return (
+                <div key={lb.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #1a1a1c" }}>
+                  <Avatar name={lbCreator?.username} avatarId={lbCreator?.avatarId} size={22} />
+                  <div style={{ flex: 1, color: "#bbb", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lb.description}</div>
+                  {lb.amount > 0 && <span style={{ color: BLUE, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>💰{lb.amount}</span>}
+                  <span style={{ color: { open: "#22c55e", active: "#22c55e", settled: "#6b7280" }[lb.status] || "#f59e0b", fontSize: 10 }}>{lb.status}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Reactions + date footer */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 14px 6px" }}>
@@ -1485,7 +1507,7 @@ export default function App() {
         </div>
       )}
 
-      {modal?.type === "create" && <CreateBetModal users={users} currentUser={currentUser} league={selectedLeague} myMember={myMember} leagueMembers={leagueMembers} onClose={() => setModal(null)} showToast={showToast} />}
+      {modal?.type === "create" && <CreateBetModal users={users} currentUser={currentUser} league={selectedLeague} myMember={myMember} leagueMembers={leagueMembers} onClose={() => setModal(null)} showToast={showToast} piggyback={modal.piggyback} />}
       {modal?.type === "profile" && <ProfileModal user={users.find(u => u.id === modal.user.id) || modal.user} currentUser={currentUser} bets={bets} memberData={getMember(modal.user.id)} onClose={() => setModal(null)} showToast={showToast} />}
       {modal?.type === "commissioner" && <CommissionerDashboard league={selectedLeague} currentUser={currentUser} members={leagueMembers} users={users} onClose={() => setModal(null)} showToast={showToast} />}
 

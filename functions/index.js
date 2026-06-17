@@ -109,7 +109,7 @@ exports.joinLeague = onCall(async request => {
 // ── Bet creation ──────────────────────────────────────────
 exports.createBet = onCall(async request => {
   const uid = requireAuth(request);
-  const { leagueId, type, opponentId, description, stakes, amount, deadline, winType, inviteIds, anyAction } = request.data || {};
+  const { leagueId, type, opponentId, description, stakes, amount, deadline, winType, inviteIds, anyAction, parentBetId } = request.data || {};
   if (!leagueId) throw new HttpsError("invalid-argument", "leagueId required.");
   if (!description || !description.trim()) throw new HttpsError("invalid-argument", "Bet description required.");
   const amt = Number(amount) || 0;
@@ -158,6 +158,7 @@ exports.createBet = onCall(async request => {
       anyAction: !!anyAction,
       status: anyAction ? "open" : (betType === "1v1" ? "pending_acceptance" : "active"),
       winner: null, createdAt: Date.now(),
+      ...(parentBetId ? { parentBetId } : {}),
     };
     if (!anyAction) {
       if (betType === "1v1") {
