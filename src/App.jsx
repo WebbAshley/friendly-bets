@@ -1156,6 +1156,12 @@ export default function App() {
     const winner = getUser(bet.winner);
     const isOpen = bet.anyAction && bet.status === "open";
     const accent = selectedLeague?.themeColor || BLUE;
+    const leagueName = leagues.find(l => l.id === bet.leagueId)?.name || "";
+    const createdDate = bet.createdAt
+      ? new Date(bet.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : "";
+    const isMineSettled = bet.status === "settled" && bet.winner &&
+      (isCreator || bet.opponent === currentUser.id || bet.participants?.some(p => p.userId === currentUser.id));
 
     const statusColor = {
       pending_acceptance: "#f59e0b", active: "#22c55e", claimed: "#f59e0b",
@@ -1166,109 +1172,205 @@ export default function App() {
       settled: "Settled", resolve_voting: "Voting", open: "Any Action?",
     }[bet.status];
 
+    const potTotal = bet.participants?.reduce((s, p) => s + (p.amount || 0), 0) || 0;
+    const statTiles = [
+      {
+        label: "WAGER",
+        value: bet.amount > 0 ? `💰 ${bet.amount}` : "—",
+        color: bet.amount > 0 ? BLUE : "#666",
+      },
+      {
+        label: "DEADLINE",
+        value: bet.deadline || "—",
+        color: WHITE,
+      },
+      bet.status === "settled"
+        ? {
+            label: "RESULT",
+            value: bet.type === "pot"
+              ? (winner ? `🏆 ${winner.username}` : "—")
+              : isWinner ? `+${bet.amount} 💰` : `-${bet.amount} 💰`,
+            color: bet.type === "pot"
+              ? (isWinner ? "#4ade80" : "#aaa")
+              : isWinner ? "#4ade80" : "#f87171",
+          }
+        : {
+            label: bet.type === "pot" ? "TOTAL POT" : "TO WIN",
+            value: bet.type === "pot"
+              ? `💰 ${potTotal}`
+              : bet.amount > 0 ? `+${bet.amount} 💰` : "—",
+            color: bet.amount > 0 ? "#4ade80" : "#666",
+          },
+    ];
+
     return (
-      <Card style={{ borderColor: isOpen ? accent : "#444", borderWidth: isOpen ? 2 : 1 }}>
-        {isOpen && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: accent, display: "inline-block", animation: "pulse 1s infinite" }} />
-            <span style={{ color: accent, fontWeight: 800, fontSize: 12, letterSpacing: 1 }}>⚡ ANY ACTION? — UNCLAIMED</span>
+      <Card style={{ background: DARK, borderColor: isOpen ? accent : "#3a3a3c", borderWidth: isOpen ? 2 : 1, padding: 0, overflow: "hidden" }}>
+
+        {/* 1 — Header bar */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", borderBottom: "1px solid #2a2a2c" }}>
+          <span style={{ color: "#888", fontSize: 11, fontWeight: 600, letterSpacing: 0.4 }}>{leagueName}</span>
+          <span style={{ color: statusColor, fontSize: 11, fontWeight: 700, background: statusColor + "22", padding: "3px 8px", borderRadius: 4, letterSpacing: 0.4 }}>
+            {isOpen ? "⚡ ANY ACTION?" : statusLabel}
+          </span>
+        </div>
+
+        <div style={{ padding: "13px 14px 0" }}>
+
+          {/* 2 — Big bold description */}
+          <div style={{ color: WHITE, fontWeight: 800, fontSize: 18, lineHeight: 1.35, marginBottom: 14 }}>
+            {bet.description}
           </div>
-        )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {inFeed
-              ? <Avatar name={creator?.username} avatarId={creator?.avatarId} size={28} />
-              : (bet.type === "pot" ? <span style={{ fontSize: 20 }}>🪣</span> : <Avatar name={opp?.username} avatarId={opp?.avatarId} size={32} />)
-            }
-            <div>
-              <div style={{ color: WHITE, fontWeight: 700, fontSize: 14 }}>
-                {inFeed
-                  ? `${creator?.username}${bet.type === "1v1" && bet.opponent ? ` vs ${getUser(bet.opponent)?.username}` : ""}`
-                  : (bet.type === "1v1" ? `vs ${opp?.username || "?"}${opp?.dishonorable ? " 🏴" : ""}` : bet.description)}
+
+          {/* 3 — Matchup row */}
+          {bet.type === "pot" ? (
+            <div style={{ background: SECTION, borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
+              <div style={{ color: "#888", fontSize: 11, fontWeight: 600, marginBottom: 8 }}>🪣 GROUP POT — {bet.participants?.length || 0} Players</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {bet.participants?.map(p => {
+                  const u = getUser(p.userId);
+                  return (
+                    <div key={p.userId} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                      <Avatar name={u?.username} avatarId={u?.avatarId} size={32} />
+                      <span style={{ color: p.paid ? WHITE : "#888", fontSize: 10, fontWeight: 600 }}>{u?.username}</span>
+                      <span style={{ color: p.paid ? "#4ade80" : "#f59e0b", fontSize: 9 }}>{p.paid ? "✓ in" : "pending"}</span>
+                    </div>
+                  );
+                })}
               </div>
-              <div style={{ color: "#aaa", fontSize: 12 }}>{bet.description}</div>
             </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, background: SECTION, borderRadius: 10, padding: "10px 12px" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1 }}>
+                <Avatar name={creator?.username} avatarId={creator?.avatarId} size={34} />
+                <span style={{ color: WHITE, fontSize: 11, fontWeight: 700, textAlign: "center" }}>{creator?.username || "?"}</span>
+                <span style={{ color: "#666", fontSize: 10 }}>Challenger</span>
+              </div>
+              <span style={{ color: "#444", fontWeight: 900, fontSize: 12, flexShrink: 0 }}>VS</span>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flex: 1 }}>
+                {isOpen ? (
+                  <>
+                    <div style={{ width: 34, height: 34, borderRadius: "50%", background: SECTION, border: "2px dashed #555", display: "flex", alignItems: "center", justifyContent: "center", color: "#555", fontSize: 16 }}>?</div>
+                    <span style={{ color: "#888", fontSize: 11, fontWeight: 700 }}>Unclaimed</span>
+                    <span style={{ color: "#555", fontSize: 10 }}>Open</span>
+                  </>
+                ) : (
+                  <>
+                    <Avatar name={opp?.username} avatarId={opp?.avatarId} size={34} />
+                    <span style={{ color: WHITE, fontSize: 11, fontWeight: 700, textAlign: "center" }}>{opp?.username || "?"}</span>
+                    <span style={{ color: "#666", fontSize: 10 }}>Opponent</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 4 — 3 stat tiles */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            {statTiles.map(t => (
+              <div key={t.label} style={{ flex: 1, background: SECTION, borderRadius: 8, padding: "8px 6px", textAlign: "center" }}>
+                <div style={{ color: "#666", fontSize: 9, fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>{t.label}</div>
+                <div style={{ color: t.color, fontSize: 12, fontWeight: 800 }}>{t.value}</div>
+              </div>
+            ))}
           </div>
-          <span style={{ color: statusColor, fontSize: 11, fontWeight: 700, background: statusColor + "22", padding: "3px 8px", borderRadius: 4, flexShrink: 0 }}>{statusLabel}</span>
-        </div>
 
-        <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
-          {bet.stakes && <span style={{ color: "#aaa", fontSize: 12 }}>📋 {bet.stakes}</span>}
-          {bet.amount > 0 && <span style={{ color: accent, fontSize: 12, fontWeight: 700 }}>💰 {bet.amount} Monies</span>}
-          {bet.deadline && <span style={{ color: "#aaa", fontSize: 12 }}>📅 {bet.deadline}</span>}
-        </div>
+          {/* 5 — Risk pills */}
+          {(bet.stakes || opp?.dishonorable || (inFeed && creator?.dishonorable)) && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+              {bet.stakes && (
+                <span style={{ background: SECTION, color: "#ccc", borderRadius: 12, padding: "3px 10px", fontSize: 11, border: "1px solid #3a3a3c" }}>📋 {bet.stakes}</span>
+              )}
+              {opp?.dishonorable && (
+                <span style={{ background: "#2d0a0a", color: "#f87171", borderRadius: 12, padding: "3px 10px", fontSize: 11, border: "1px solid #7f1d1d" }}>🏴 Dishonorable Opp</span>
+              )}
+              {inFeed && creator?.dishonorable && (
+                <span style={{ background: "#2d0a0a", color: "#f87171", borderRadius: 12, padding: "3px 10px", fontSize: 11, border: "1px solid #7f1d1d" }}>🏴 Dishonorable</span>
+              )}
+            </div>
+          )}
 
-        {bet.type === "pot" && (
-          <div style={{ background: "#111", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
-            {bet.participants?.map(p => {
-              const u = getUser(p.userId);
-              return (
-                <div key={p.userId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: WHITE, marginBottom: 2 }}>
-                  <span>{u?.username}{u?.dishonorable ? " 🏴" : ""}</span>
-                  <span style={{ color: p.paid ? "#22c55e" : "#f59e0b" }}>💰 {p.amount} {p.paid ? "✓" : "pending"}</span>
+          {/* 6 — Action buttons */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            {isOpen && !isCreator && (
+              <Btn small onClick={() => acceptBet(bet.id)} disabled={submittingBets.has(`${bet.id}:accept`)} style={{ opacity: submittingBets.has(`${bet.id}:accept`) ? 0.6 : 1 }}>
+                {submittingBets.has(`${bet.id}:accept`) ? "Accepting..." : "⚡ I'll Take That!"}
+              </Btn>
+            )}
+            {isOpen && isCreator && <span style={{ color: "#666", fontSize: 12 }}>Waiting for someone to claim...</span>}
+            {bet.status === "pending_acceptance" && !isCreator && bet.opponent === currentUser.id && (
+              <><Btn small onClick={() => acceptBet(bet.id)} disabled={submittingBets.has(`${bet.id}:accept`)} style={{ opacity: submittingBets.has(`${bet.id}:accept`) ? 0.6 : 1 }}>
+                {submittingBets.has(`${bet.id}:accept`) ? "Accepting..." : "Accept ✅"}
+              </Btn><Btn small variant="danger" onClick={() => declineBet(bet.id)}>Decline ✗</Btn></>
+            )}
+            {bet.type === "1v1" && bet.status === "active" && (isCreator || bet.opponent === currentUser.id) && (
+              <Btn small onClick={() => claimWin(bet.id)}>Claim Win 🏆</Btn>
+            )}
+            {bet.status === "claimed" && bet.claimedBy !== currentUser.id && (
+              <><Btn small variant="success" onClick={() => confirmWin(bet.id)} disabled={submittingBets.has(`${bet.id}:confirm`)} style={{ opacity: submittingBets.has(`${bet.id}:confirm`) ? 0.6 : 1 }}>
+                {submittingBets.has(`${bet.id}:confirm`) ? "Confirming..." : "Confirm ✅"}
+              </Btn><Btn small variant="danger" onClick={() => disputeClaim(bet.id)}>Dispute ⚠️</Btn></>
+            )}
+            {bet.status === "claimed" && bet.claimedBy === currentUser.id && <span style={{ color: "#f59e0b", fontSize: 12 }}>Waiting for confirmation...</span>}
+            {bet.type === "1v1" && bet.status === "settled" && isWinner && !bet.reportedUnpaid && bet.paidStatus === "unpaid" && (
+              <><Btn small variant="success" onClick={() => markPaid(bet.id)} disabled={submittingBets.has(`${bet.id}:markpaid`)} style={{ opacity: submittingBets.has(`${bet.id}:markpaid`) ? 0.6 : 1 }}>
+                {submittingBets.has(`${bet.id}:markpaid`) ? "Updating..." : "Mark Paid ✅"}
+              </Btn><Btn small variant="danger" onClick={() => reportUnpaid(bet.id)} disabled={submittingBets.has(`${bet.id}:report`)} style={{ opacity: submittingBets.has(`${bet.id}:report`) ? 0.6 : 1 }}>
+                {submittingBets.has(`${bet.id}:report`) ? "Reporting..." : "Report Unpaid 🏴"}
+              </Btn></>
+            )}
+            {bet.status === "settled" && bet.paidStatus === "paid" && <Badge label="✅ PAID" color="#1a7a1a" small />}
+            {bet.status === "settled" && bet.reportedUnpaid && <Badge label="🏴 UNPAID" color="#8b0000" small />}
+            {bet.type === "pot" && (bet.status === "active" || bet.status === "resolve_voting") && isCreator && (
+              <Btn small variant="outline" onClick={() => startPotVote(bet.id)}>Start Vote 🗳️</Btn>
+            )}
+            {bet.type === "pot" && bet.status === "resolve_voting" && !bet.resolveVotes?.[currentUser.id] && (
+              <div style={{ width: "100%" }}>
+                <div style={{ color: "#888", fontSize: 12, marginBottom: 6 }}>Vote for winner:</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {bet.participants?.map(p => <Btn key={p.userId} small variant="outline" onClick={() => votePotWinner(bet.id, p.userId)}>{getUser(p.userId)?.username}</Btn>)}
                 </div>
-              );
-            })}
-            <div style={{ color: accent, fontWeight: 700, fontSize: 13, marginTop: 6 }}>
-              Pot: 💰 {bet.participants?.reduce((s, p) => s + (p.amount || 0), 0)} Monies
-            </div>
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {isOpen && !isCreator && (
-            <Btn small onClick={() => acceptBet(bet.id)} disabled={submittingBets.has(`${bet.id}:accept`)} style={{ opacity: submittingBets.has(`${bet.id}:accept`) ? 0.6 : 1 }}>
-              {submittingBets.has(`${bet.id}:accept`) ? "Accepting..." : "⚡ I'll Take That!"}
-            </Btn>
-          )}
-          {isOpen && isCreator && <span style={{ color: "#aaa", fontSize: 12 }}>Waiting for someone to claim...</span>}
-          {bet.status === "pending_acceptance" && !isCreator && bet.opponent === currentUser.id && (
-            <><Btn small onClick={() => acceptBet(bet.id)} disabled={submittingBets.has(`${bet.id}:accept`)} style={{ opacity: submittingBets.has(`${bet.id}:accept`) ? 0.6 : 1 }}>
-              {submittingBets.has(`${bet.id}:accept`) ? "Accepting..." : "Accept ✅"}
-            </Btn><Btn small variant="danger" onClick={() => declineBet(bet.id)}>Decline ✗</Btn></>
-          )}
-          {bet.type === "1v1" && bet.status === "active" && (isCreator || bet.opponent === currentUser.id) && (
-            <Btn small onClick={() => claimWin(bet.id)}>Claim Win 🏆</Btn>
-          )}
-          {bet.status === "claimed" && bet.claimedBy !== currentUser.id && (
-            <><Btn small variant="success" onClick={() => confirmWin(bet.id)} disabled={submittingBets.has(`${bet.id}:confirm`)} style={{ opacity: submittingBets.has(`${bet.id}:confirm`) ? 0.6 : 1 }}>
-              {submittingBets.has(`${bet.id}:confirm`) ? "Confirming..." : "Confirm ✅"}
-            </Btn><Btn small variant="danger" onClick={() => disputeClaim(bet.id)}>Dispute ⚠️</Btn></>
-          )}
-          {bet.status === "claimed" && bet.claimedBy === currentUser.id && <span style={{ color: "#f59e0b", fontSize: 12 }}>Waiting for confirmation...</span>}
-          {bet.type === "1v1" && bet.status === "settled" && isWinner && !bet.reportedUnpaid && bet.paidStatus === "unpaid" && (
-            <><Btn small variant="success" onClick={() => markPaid(bet.id)} disabled={submittingBets.has(`${bet.id}:markpaid`)} style={{ opacity: submittingBets.has(`${bet.id}:markpaid`) ? 0.6 : 1 }}>
-              {submittingBets.has(`${bet.id}:markpaid`) ? "Updating..." : "Mark Paid ✅"}
-            </Btn><Btn small variant="danger" onClick={() => reportUnpaid(bet.id)} disabled={submittingBets.has(`${bet.id}:report`)} style={{ opacity: submittingBets.has(`${bet.id}:report`) ? 0.6 : 1 }}>
-              {submittingBets.has(`${bet.id}:report`) ? "Reporting..." : "Report Unpaid 🏴"}
-            </Btn></>
-          )}
-          {bet.status === "settled" && bet.paidStatus === "paid" && <Badge label="✅ PAID" color="#1a7a1a" small />}
-          {bet.status === "settled" && bet.reportedUnpaid && <Badge label="🏴 UNPAID" color="#8b0000" small />}
-          {bet.type === "pot" && (bet.status === "active" || bet.status === "resolve_voting") && isCreator && (
-            <Btn small variant="outline" onClick={() => startPotVote(bet.id)}>Start Vote 🗳️</Btn>
-          )}
-          {bet.type === "pot" && bet.status === "resolve_voting" && !bet.resolveVotes?.[currentUser.id] && (
-            <div style={{ width: "100%" }}>
-              <div style={{ color: "#aaa", fontSize: 12, marginBottom: 6 }}>Vote for winner:</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {bet.participants?.map(p => <Btn key={p.userId} small variant="outline" onClick={() => votePotWinner(bet.id, p.userId)}>{getUser(p.userId)?.username}</Btn>)}
               </div>
+            )}
+            {bet.status === "settled" && winner && !isWinner && (
+              <div style={{ width: "100%" }}>
+                <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>
+                  {bet.type === "pot" && <span style={{ marginRight: 8 }}><Badge label={`🏆 ${winner.username} wins`} color={accent} small /></span>}
+                  Pay {winner.username} via:
+                </div>
+                {[["Venmo", winner.venmo], ["CashApp", winner.cashapp], ["Zelle", winner.zelle]].filter(([, v]) => v).map(([l, v]) => (
+                  <span key={l} style={{ color: WHITE, fontSize: 11, background: SECTION, borderRadius: 4, padding: "2px 7px", marginRight: 4 }}>{l}: {v}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 8 — Result banner */}
+          {isMineSettled && (
+            <div style={{ margin: "0 -14px", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", background: isWinner ? "#052e16" : "#2d1111", borderTop: `1px solid ${isWinner ? "#14532d" : "#7f1d1d"}` }}>
+              <span style={{ color: isWinner ? "#4ade80" : "#f87171", fontWeight: 800, fontSize: 14 }}>
+                {isWinner ? "👑 You won!" : "😤 You lost"}
+              </span>
+              {bet.amount > 0 && (
+                <span style={{ color: isWinner ? "#4ade80" : "#f87171", fontWeight: 900, fontSize: 15 }}>
+                  {isWinner ? `+${bet.amount} 💰` : `-${bet.amount} 💰`}
+                </span>
+              )}
             </div>
           )}
-          {bet.status === "settled" && winner && (
-            <div style={{ width: "100%", marginTop: 4 }}>
-              {bet.type === "pot" && <Badge label={`🏆 Winner: ${winner.username}`} color={accent} small />}
-              <div style={{ color: "#aaa", fontSize: 11, marginTop: 6, marginBottom: 2 }}>Pay {winner.username} via:</div>
-              {[["Venmo", winner.venmo], ["CashApp", winner.cashapp], ["Zelle", winner.zelle]].filter(([, v]) => v).map(([l, v]) => (
-                <span key={l} style={{ color: WHITE, fontSize: 11, background: "#111", borderRadius: 4, padding: "2px 7px", marginRight: 4 }}>{l}: {v}</span>
-              ))}
-            </div>
-          )}
+
         </div>
 
-        <ReactionBar betId={bet.id} currentUser={currentUser} betCreatorId={bet.creator} />
-        <CommentSection betId={bet.id} currentUser={currentUser} users={users} betCreatorId={bet.creator} />
+        {/* Reactions */}
+        <div style={{ padding: "4px 14px 0" }}>
+          <ReactionBar betId={bet.id} currentUser={currentUser} betCreatorId={bet.creator} />
+        </div>
+
+        {/* 7 — Footer */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 14px 8px" }}>
+          <span style={{ color: "#555", fontSize: 11 }}>{createdDate}</span>
+          <CommentSection betId={bet.id} currentUser={currentUser} users={users} betCreatorId={bet.creator} />
+        </div>
+
       </Card>
     );
   };
