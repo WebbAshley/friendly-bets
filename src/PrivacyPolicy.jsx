@@ -3,11 +3,11 @@ import logo from "./assets/logo.svg";
 
 export default function PrivacyPolicy() {
   useEffect(() => {
-    if (document.getElementById("termly-jssdk")) return;
     const script = document.createElement("script");
-    script.id = "termly-jssdk";
     script.src = "https://app.termly.io/embed-policy.min.js";
+    script.async = true;
     document.body.appendChild(script);
+    return () => { if (document.body.contains(script)) document.body.removeChild(script); };
   }, []);
 
   return (
