@@ -543,6 +543,16 @@ function LeagueLobby({ showToast, myLeagues, onSelectLeague, onLeagueCreated }) 
 }
 
 // ── Create Bet Modal ──────────────────────────────────────
+const DURATIONS = [
+  { key: "24h", label: "24h", ms: 86_400_000 },
+  { key: "2d",  label: "2d",  ms: 172_800_000 },
+  { key: "3d",  label: "3d",  ms: 259_200_000 },
+  { key: "1w",  label: "1w",  ms: 604_800_000 },
+  { key: "2w",  label: "2w",  ms: 1_209_600_000 },
+  { key: "1mo", label: "1mo", ms: 2_592_000_000 },
+  { key: "none", label: "♾️", ms: null },
+];
+
 const RISK_CHIPS = [
   "💪 100 Push-ups", "🥃 Fireball Shot", "💵 Cash", "🍕 Buy Pizza",
   "🌮 Buy Tacos", "🍺 Buy a Round", "👶 Social Media Post", "🤐 Loser Goes Silent for 24hrs",
@@ -551,7 +561,7 @@ const RISK_CHIPS = [
 function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, onClose, showToast, piggyback }) {
   const [form, setForm] = useState({
     type: "1v1", opponentId: "", description: piggyback?.description || "", stakeChips: [], stakesCustom: "",
-    amount: "", deadline: "", winType: "single", inviteIds: [], anyAction: piggyback ? true : false,
+    amount: "", duration: piggyback ? "1w" : "2d", winType: "single", inviteIds: [], anyAction: piggyback ? true : false,
   });
   const [submitting, setSubmitting] = useState(false);
   const leagueMemberIds = new Set((leagueMembers || []).map(m => m.userId));
@@ -568,15 +578,15 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
     if (submitting) return;
     if (!form.description) return showToast("Add a bet description", "error");
     const amt = parseFloat(form.amount) || 0;
-    if (amt > balance) return showToast(`Not enough 💰 Monies (have ${balance})`, "error");
     if (!form.anyAction && form.type === "1v1" && !form.opponentId) return showToast("Select an opponent", "error");
+    if (!form.anyAction && form.type === "pot" && amt > balance) return showToast(`Not enough 💰 Monies (have ${balance})`, "error");
     setSubmitting(true);
     try {
       const stakeParts = [...form.stakeChips, ...(form.stakesCustom.trim() ? [form.stakesCustom.trim()] : [])];
       await call("createBet", {
         leagueId: league.id, type: form.type, opponentId: form.opponentId,
         description: form.description, stakes: stakeParts.join(", "), amount: amt,
-        deadline: form.deadline, winType: form.winType, inviteIds: form.inviteIds,
+        duration: form.duration, winType: form.winType, inviteIds: form.inviteIds,
         anyAction: form.anyAction, parentBetId: piggyback?.parentBetId || null,
       });
       onClose();
@@ -597,7 +607,7 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
         </div>
 
         <label style={{ display: "flex", alignItems: "center", gap: 10, background: form.anyAction ? BLUE + "22" : DEEP, borderRadius: 8, padding: "10px 12px", marginBottom: 12, cursor: "pointer", border: form.anyAction ? `1px solid ${BLUE}` : "1px solid #333" }}>
-          <input type="checkbox" checked={form.anyAction} onChange={e => setForm(f => ({ ...f, anyAction: e.target.checked }))} />
+          <input type="checkbox" checked={form.anyAction} onChange={e => setForm(f => ({ ...f, anyAction: e.target.checked, duration: e.target.checked ? "1w" : "2d" }))} />
           <div>
             <div style={{ color: WHITE, fontWeight: 700, fontSize: 14 }}>⚡ Any Action?</div>
             <div style={{ color: "#aaa", fontSize: 11 }}>Post to feed — first member to claim locks it in</div>
@@ -700,7 +710,26 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
           <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
             placeholder="Or type custom amount..." style={{ width: "100%", boxSizing: "border-box", background: "#111", border: "1px solid #333", borderRadius: 6, color: WHITE, padding: "6px 10px", fontSize: 12 }} />
         </div>
-        <Field label="Deadline" type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} />
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: "#aaa", fontSize: 12, fontWeight: 600, marginBottom: 8 }}>⏱️ Expires In</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {DURATIONS.map(d => {
+              const sel = form.duration === d.key;
+              return (
+                <button key={d.key} onClick={() => setForm(f => ({ ...f, duration: d.key }))}
+                  style={{ background: sel ? BLUE : "#1a1a1c", border: `1px solid ${sel ? BLUE : "#444"}`, borderRadius: 20, color: sel ? WHITE : "#ccc", padding: "5px 11px", fontSize: 12, cursor: "pointer", fontWeight: sel ? 700 : 400 }}>
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+          {(() => {
+            const dur = DURATIONS.find(d => d.key === form.duration);
+            if (!dur || !dur.ms) return <div style={{ color: "#555", fontSize: 11, marginTop: 6 }}>No expiry — commissioner settles manually</div>;
+            const exp = new Date(Date.now() + dur.ms).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+            return <div style={{ color: "#555", fontSize: 11, marginTop: 6 }}>Expires: {exp}</div>;
+          })()}
+        </div>
         {!form.anyAction && form.type === "pot" && (
           <Sel label="Win Type" value={form.winType} onChange={e => setForm(f => ({ ...f, winType: e.target.value }))}>
             <option value="single">Single winner takes all</option>
@@ -1432,12 +1461,24 @@ export default function App() {
 
     const statusColor = {
       pending_acceptance: "#f59e0b", active: "#22c55e", claimed: "#f59e0b",
-      settled: "#6b7280", resolve_voting: "#f59e0b", open: accent,
+      settled: "#6b7280", resolve_voting: "#f59e0b", open: accent, expired: "#4b5563",
     }[bet.status] || "#aaa";
     const statusLabel = {
       pending_acceptance: "Pending", active: "Active", claimed: "Claimed",
-      settled: "Settled", resolve_voting: "Voting", open: "Any Action?",
+      settled: "Settled", resolve_voting: "Voting", open: "Any Action?", expired: "Expired",
     }[bet.status];
+
+    const expiryLabel = (() => {
+      if (bet.status === "expired") return "Expired";
+      if (!bet.expiresAt) return bet.deadline || "♾️";
+      const diff = bet.expiresAt - Date.now();
+      if (diff <= 0) return "Expiring...";
+      const h = Math.floor(diff / 3_600_000);
+      if (h < 24) return `${h}h left`;
+      const d = Math.floor(h / 24);
+      if (d < 14) return `${d}d left`;
+      return `${Math.floor(d / 7)}w left`;
+    })();
 
     const potTotal = bet.participants?.filter(p => p.paid).reduce((s, p) => s + (p.amount || 0), 0) || 0;
     const linkedBets = inFeed ? bets.filter(b => b.id !== bet.id && (b.parentBetId === bet.id || (bet.parentBetId && b.parentBetId === bet.parentBetId))) : [];
@@ -1448,9 +1489,9 @@ export default function App() {
         color: bet.amount > 0 ? BLUE : "#666",
       },
       {
-        label: "DEADLINE",
-        value: bet.deadline || "—",
-        color: WHITE,
+        label: "EXPIRES",
+        value: expiryLabel,
+        color: bet.status === "expired" ? "#6b7280" : (bet.expiresAt && bet.expiresAt - Date.now() < 86_400_000 && bet.status !== "expired" && !bet.moniesLocked) ? "#f59e0b" : WHITE,
       },
       bet.status === "settled"
         ? {
@@ -1472,7 +1513,7 @@ export default function App() {
     ];
 
     return (
-      <Card style={{ background: DARK, borderColor: isOpen ? accent : highlight ? BLUE : "#3a3a3c", borderWidth: isOpen ? 2 : 1, borderLeft: highlight ? `4px solid ${BLUE}` : undefined, padding: 0, overflow: "hidden" }}>
+      <Card style={{ background: DARK, borderColor: isOpen ? accent : highlight ? BLUE : "#3a3a3c", borderWidth: isOpen ? 2 : 1, borderLeft: highlight ? `4px solid ${BLUE}` : undefined, padding: 0, overflow: "hidden", opacity: bet.status === "expired" ? 0.6 : 1 }}>
 
         {/* 1 — Header bar */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", borderBottom: "1px solid #2a2a2c" }}>
@@ -1701,7 +1742,7 @@ export default function App() {
   ).sort((a, b) => b.createdAt - a.createdAt);
   const tier1Ids = new Set(feedTier1.map(b => b.id));
 
-  const feedTier2 = bets.filter(b => !tier1Ids.has(b.id) && b.status !== "settled").sort((a, b) => b.createdAt - a.createdAt);
+  const feedTier2 = bets.filter(b => !tier1Ids.has(b.id) && b.status !== "settled" && b.status !== "expired").sort((a, b) => b.createdAt - a.createdAt);
   const tier2Ids = new Set(feedTier2.map(b => b.id));
 
   const feedTier3 = bets.filter(b => b.status === "settled" && b.createdAt >= now48h).sort((a, b) => b.createdAt - a.createdAt);
@@ -1709,6 +1750,8 @@ export default function App() {
 
   const feedTier4All = bets.filter(b => b.status === "settled" && !tier3Ids.has(b.id)).sort((a, b) => b.createdAt - a.createdAt);
   const feedTier4 = feedTier4All.slice(0, feedSettledLimit);
+
+  const feedExpired = bets.filter(b => b.status === "expired").sort((a, b) => b.createdAt - a.createdAt);
 
   return (
     <div style={{ background: DARK, minHeight: "100vh", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column" }}>
@@ -1816,7 +1859,14 @@ export default function App() {
               </>
             )}
 
-            {feedTier1.length === 0 && feedTier2.length === 0 && feedTier3.length === 0 && feedTier4.length === 0 && (
+            {feedExpired.length > 0 && (
+              <>
+                <div style={{ color: "#4b5563", fontWeight: 700, fontSize: 11, marginBottom: 8, letterSpacing: 1 }}>⏰ EXPIRED</div>
+                {feedExpired.map(b => <BetCard key={b.id} bet={b} inFeed />)}
+              </>
+            )}
+
+            {feedTier1.length === 0 && feedTier2.length === 0 && feedTier3.length === 0 && feedTier4.length === 0 && feedExpired.length === 0 && (
               <div style={{ color: "#555", textAlign: "center", padding: 32 }}>No bets yet. Create one! 💰</div>
             )}
           </>

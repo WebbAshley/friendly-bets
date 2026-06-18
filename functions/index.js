@@ -93,6 +93,16 @@ async function sendSMS(toUserId, message) {
 
 const genCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 
+const DURATION_MS = {
+  "24h": 86_400_000,
+  "2d":  172_800_000,
+  "3d":  259_200_000,
+  "1w":  604_800_000,
+  "2w":  1_209_600_000,
+  "1mo": 2_592_000_000,
+  "none": null,
+};
+
 // ── League creation / joining ────────────────────────────
 exports.createLeague = onCall(async request => {
   const uid = requireAuth(request);
@@ -162,7 +172,7 @@ exports.markBuyInPaid = onCall(async request => {
 // ── Bet creation ──────────────────────────────────────────
 exports.createBet = onCall(async request => {
   const uid = requireAuth(request);
-  const { leagueId, type, opponentId, description, stakes, amount, deadline, winType, inviteIds, anyAction, parentBetId } = request.data || {};
+  const { leagueId, type, opponentId, description, stakes, amount, duration, winType, inviteIds, anyAction, parentBetId } = request.data || {};
   if (!leagueId) throw new HttpsError("invalid-argument", "leagueId required.");
   if (!description || !description.trim()) throw new HttpsError("invalid-argument", "Bet description required.");
   const amt = Number(amount) || 0;
@@ -206,13 +216,16 @@ exports.createBet = onCall(async request => {
     if ((league.buyIn || 0) > 0 && !memberSnap.data().buyInPaid) {
       throw new HttpsError("failed-precondition", "🔒 Your buy-in hasn't been confirmed yet. Contact your commissioner.");
     }
-    const balance = memberSnap.data().monies ?? 0;
-    if (amt > balance) throw new HttpsError("failed-precondition", `Not enough Monies (have ${balance}).`);
+
+    const defaultDuration = anyAction ? "1w" : "2d";
+    const resolvedDuration = duration || defaultDuration;
+    const durationMs = DURATION_MS[resolvedDuration] ?? DURATION_MS["2d"];
+    const expiresAt = durationMs ? Date.now() + durationMs : null;
 
     const betData = {
       leagueId, type: betType, creator: uid, description: description.trim(),
-      stakes: stakes || "", amount: amt, deadline: deadline || "",
-      anyAction: !!anyAction,
+      stakes: stakes || "", amount: amt, expiresAt,
+      anyAction: !!anyAction, moniesLocked: false,
       status: anyAction ? "open" : (betType === "1v1" ? "pending_acceptance" : "active"),
       winner: null, createdAt: Date.now(),
       ...(parentBetId ? { parentBetId } : {}),
@@ -221,6 +234,8 @@ exports.createBet = onCall(async request => {
       if (betType === "1v1") {
         betData.opponent = opponentId; betData.paidStatus = null; betData.reportedUnpaid = false;
       } else {
+        const potBalance = memberSnap.data().monies ?? 0;
+        if (amt > potBalance) throw new HttpsError("failed-precondition", `Not enough Monies (have ${potBalance}).`);
         betData.participants = [
           { userId: uid, amount: amt, paid: true },
           ...inviteList.map(id => ({ userId: id, amount: amt, paid: false })),
@@ -231,7 +246,10 @@ exports.createBet = onCall(async request => {
     }
 
     tx.set(betRef, betData);
-    if (amt > 0) tx.update(memberRef, { monies: FieldValue.increment(-amt) });
+    // Pot creator pays at creation; 1v1 and Any Action? pay at acceptance
+    if (!anyAction && betType === "pot" && amt > 0) {
+      tx.update(memberRef, { monies: FieldValue.increment(-amt) });
+    }
   });
 
   if (!anyAction && betType === "1v1" && opponentId) {
@@ -265,12 +283,16 @@ exports.acceptBet = onCall(async request => {
       throw new HttpsError("failed-precondition", "This bet can no longer be accepted.");
     }
 
+    if (bet.expiresAt && bet.expiresAt < Date.now()) {
+      throw new HttpsError("failed-precondition", "This bet has expired.");
+    }
+
     const memberRef = db.doc(`leagueMembers/${bet.leagueId}_${uid}`);
     const memberSnap = await tx.get(memberRef);
     if (!memberSnap.exists) throw new HttpsError("permission-denied", "Not a member of this league.");
     const amt = bet.amount || 0;
     const balance = memberSnap.data().monies ?? 0;
-    if (amt > balance) throw new HttpsError("failed-precondition", `Not enough Monies (have ${balance}).`);
+    if (amt > balance) throw new HttpsError("failed-precondition", "Insufficient Monies to accept this bet.");
 
     if (isPotJoin) {
       if (amt > 0) tx.update(memberRef, { monies: FieldValue.increment(-amt) });
@@ -281,10 +303,21 @@ exports.acceptBet = onCall(async request => {
       return { creatorId: bet.creator, isPotJoin: true };
     }
 
-    if (amt > 0) tx.update(memberRef, { monies: FieldValue.increment(-amt) });
-    tx.update(betRef, isOpenClaim
-      ? { status: "active", opponent: uid, anyAction: false }
-      : { status: "active" });
+    // 1v1 and Any Action?: deduct from both creator and acceptor atomically
+    const creatorRef = db.doc(`leagueMembers/${bet.leagueId}_${bet.creator}`);
+    const creatorSnap = await tx.get(creatorRef);
+    if (!creatorSnap.exists) throw new HttpsError("not-found", "Creator member not found.");
+    const creatorBalance = creatorSnap.data().monies ?? 0;
+    if (amt > creatorBalance) throw new HttpsError("failed-precondition", "Insufficient Monies to accept this bet.");
+
+    if (amt > 0) {
+      tx.update(memberRef, { monies: FieldValue.increment(-amt) });
+      tx.update(creatorRef, { monies: FieldValue.increment(-amt) });
+    }
+    tx.update(betRef, {
+      ...(isOpenClaim ? { status: "active", opponent: uid, anyAction: false } : { status: "active" }),
+      moniesLocked: true,
+    });
 
     return { creatorId: bet.creator, isPotJoin: false };
   });
@@ -311,7 +344,8 @@ exports.declineBet = onCall(async request => {
     if (bet.opponent !== uid) throw new HttpsError("permission-denied", "Only the challenged opponent can decline.");
     if (bet.status !== "pending_acceptance") throw new HttpsError("failed-precondition", "Bet is not pending.");
 
-    if ((bet.amount || 0) > 0) {
+    // Only refund if this is an old bet where creator paid at creation (no moniesLocked field)
+    if (bet.moniesLocked === undefined && (bet.amount || 0) > 0) {
       tx.update(db.doc(`leagueMembers/${bet.leagueId}_${bet.creator}`), { monies: FieldValue.increment(bet.amount) });
     }
     tx.delete(betRef);
@@ -635,6 +669,33 @@ exports.newSeason = onCall(async request => {
   batch.update(db.doc(`leagues/${leagueId}`), { status: "active", endDate: "" });
   await batch.commit();
   return { ok: true };
+});
+
+// ── Expire open/pending bets past their expiresAt timestamp ─
+exports.expireBets = onSchedule("every 60 minutes", async () => {
+  const now = Date.now();
+  const snap = await db.collection("bets")
+    .where("status", "in", ["pending_acceptance", "open"])
+    .get();
+
+  const toExpire = snap.docs.filter(d => {
+    const { expiresAt, moniesLocked } = d.data();
+    return expiresAt && expiresAt < now && !moniesLocked;
+  });
+
+  if (toExpire.length === 0) return;
+
+  await Promise.all(toExpire.map(async d => {
+    const bet = d.data();
+    await db.doc(`bets/${d.id}`).update({ status: "expired" });
+
+    const creatorName = await usernameOf(bet.creator);
+    await sendNotif(bet.creator, `⏰ Your bet '${bet.description}' expired with no takers.`, { type: "expired", leagueId: bet.leagueId, betId: d.id });
+
+    if (bet.status === "pending_acceptance" && bet.opponent) {
+      await sendNotif(bet.opponent, `⏰ A bet challenge from ${creatorName} expired.`, { type: "expired", leagueId: bet.leagueId, betId: d.id });
+    }
+  }));
 });
 
 // ── Weekly Standings Snapshot — every Monday midnight CST ─
