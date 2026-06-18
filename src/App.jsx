@@ -717,7 +717,7 @@ function CreateBetModal({ users, currentUser, league, myMember, leagueMembers, o
 }
 
 // ── Profile Modal ─────────────────────────────────────────
-function ProfileModal({ user, currentUser, bets, users, memberData, onClose, showToast }) {
+function ProfileModal({ user, currentUser, bets, users, memberData, leagueStartingMonies = 1000, onClose, showToast }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ venmo: user.venmo || "", cashapp: user.cashapp || "", zelle: user.zelle || "", avatarId: user.avatarId || "", phoneNumber: user.phoneNumber || "" });
   const isSelf = user.id === currentUser.id;
@@ -785,12 +785,32 @@ function ProfileModal({ user, currentUser, bets, users, memberData, onClose, sho
           <Btn variant="ghost" small onClick={onClose}>✕</Btn>
         </div>
 
-        {memberData && (
-          <div style={{ background: DEEP, borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ color: "#aaa", fontSize: 12 }}>💰 Monies Balance</div>
-            <div style={{ color: BLUE, fontWeight: 900, fontSize: 22 }}>{memberData.monies ?? 0}</div>
-          </div>
-        )}
+        {memberData && (() => {
+          const balance = memberData.monies ?? 0;
+          const gifted = memberData.giftedMonies || 0;
+          const netProfit = balance - leagueStartingMonies - gifted;
+          const profitColor = netProfit > 0 ? "#22c55e" : netProfit < 0 ? "#ff4444" : "#aaa";
+          return (
+            <div style={{ background: DEEP, borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: gifted > 0 ? 8 : 0 }}>
+                <div style={{ color: "#aaa", fontSize: 12 }}>💰 Monies Balance</div>
+                <div style={{ color: BLUE, fontWeight: 900, fontSize: 22 }}>{balance}</div>
+              </div>
+              {gifted > 0 && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <div style={{ color: "#aaa", fontSize: 12 }}>🎁 Gifted</div>
+                    <div style={{ color: "#f59e0b", fontWeight: 700, fontSize: 14 }}>+{gifted} 💰</div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ color: "#aaa", fontSize: 12 }}>📈 Net from Bets</div>
+                    <div style={{ color: profitColor, fontWeight: 700, fontSize: 14 }}>{netProfit >= 0 ? "+" : ""}{netProfit}</div>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
           {[["WINS", user.wins, BLUE], ["LOSSES", user.losses, "#aaa"]].map(([l, v, c]) => (
@@ -1702,7 +1722,7 @@ export default function App() {
       )}
 
       {modal?.type === "create" && <CreateBetModal users={users} currentUser={currentUser} league={selectedLeague} myMember={myMember} leagueMembers={leagueMembers} onClose={() => setModal(null)} showToast={showToast} piggyback={modal.piggyback} />}
-      {modal?.type === "profile" && <ProfileModal user={users.find(u => u.id === modal.user.id) || modal.user} currentUser={currentUser} bets={bets} users={users} memberData={getMember(modal.user.id)} onClose={() => setModal(null)} showToast={showToast} />}
+      {modal?.type === "profile" && <ProfileModal user={users.find(u => u.id === modal.user.id) || modal.user} currentUser={currentUser} bets={bets} users={users} memberData={getMember(modal.user.id)} leagueStartingMonies={selectedLeague?.startingMonies || 1000} onClose={() => setModal(null)} showToast={showToast} />}
       {modal?.type === "commissioner" && <CommissionerDashboard league={selectedLeague} currentUser={currentUser} members={leagueMembers} users={users} onClose={() => setModal(null)} showToast={showToast} />}
 
       {/* Nav */}
@@ -1886,7 +1906,7 @@ export default function App() {
                 if (!u) return null;
                 const total = (m.wins || 0) + (m.losses || 0);
                 const winPct = total > 0 ? Math.round(m.wins / total * 100) : 0;
-                const profit = (m.monies ?? 0) - (selectedLeague.startingMonies || 1000);
+                const profit = (m.monies ?? 0) - (selectedLeague.startingMonies || 1000) - (m.giftedMonies || 0);
                 const profitColor = profit > 0 ? "#22c55e" : profit < 0 ? "#ff4444" : "#aaa";
                 const isLocked = (selectedLeague.buyIn || 0) > 0 && !m.buyInPaid;
                 return (

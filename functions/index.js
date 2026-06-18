@@ -58,6 +58,39 @@ async function sendNotif(toUserId, body, extra = {}) {
   });
 }
 
+function toE164(raw) {
+  const digits = (raw || "").replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (raw && raw.startsWith("+")) return raw;
+  return null;
+}
+
+async function sendSMS(toUserId, message) {
+  try {
+    const userSnap = await db.doc(`users/${toUserId}`).get();
+    const rawPhone = userSnap.data()?.phoneNumber;
+    if (!rawPhone) {
+      console.log(`[sendSMS] user ${toUserId} has no phoneNumber — skipping`);
+      return;
+    }
+    const phone = toE164(rawPhone);
+    if (!phone) {
+      console.log(`[sendSMS] user ${toUserId} phone "${rawPhone}" could not be normalized — skipping`);
+      return;
+    }
+    const client = require("twilio")(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    await client.messages.create({
+      body: message,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: phone,
+    });
+    console.log(`[sendSMS] SMS sent to ${toUserId} (${phone})`);
+  } catch (e) {
+    console.error(`[sendSMS] failed for ${toUserId}:`, e.message);
+  }
+}
+
 const genCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 
 // ── League creation / joining ────────────────────────────
@@ -204,6 +237,7 @@ exports.createBet = onCall(async request => {
   if (!anyAction && betType === "1v1" && opponentId) {
     const creatorName = await usernameOf(uid);
     await sendNotif(opponentId, `⚔️ ${creatorName} challenged you to a bet!`, { type: "challenge", betId: betRef.id });
+    await sendSMS(opponentId, `⚔️ Bro-Bets: ${creatorName} challenged you to a bet!\n'${description.trim()}' for ${amt} 💰\nOpen the app to accept or decline: ${process.env.APP_URL}`);
   }
   return { betId: betRef.id };
 });
@@ -313,7 +347,7 @@ exports.confirmWin = onCall(async request => {
   if (!betId) throw new HttpsError("invalid-argument", "betId required.");
   const betRef = db.doc(`bets/${betId}`);
 
-  await db.runTransaction(async tx => {
+  const settled = await db.runTransaction(async tx => {
     const betSnap = await tx.get(betRef);
     if (!betSnap.exists) throw new HttpsError("not-found", "Bet not found.");
     const bet = betSnap.data();
@@ -332,7 +366,11 @@ exports.confirmWin = onCall(async request => {
       ? { monies: FieldValue.increment(amt * 2), wins: FieldValue.increment(1) }
       : { wins: FieldValue.increment(1) });
     tx.update(db.doc(`leagueMembers/${bet.leagueId}_${lId}`), { losses: FieldValue.increment(1) });
+    return { wId, lId, description: bet.description, amount: amt };
   });
+
+  const winnerName = await usernameOf(settled.wId);
+  await sendSMS(settled.lId, `🏆 Bro-Bets: ${winnerName} won the bet!\n'${settled.description}' — you lost ${settled.amount} 💰\nOpen the app: ${process.env.APP_URL}`);
   return { ok: true };
 });
 
@@ -377,7 +415,7 @@ exports.reportUnpaid = onCall(async request => {
   if (!betId) throw new HttpsError("invalid-argument", "betId required.");
   const betRef = db.doc(`bets/${betId}`);
 
-  await db.runTransaction(async tx => {
+  const flagged = await db.runTransaction(async tx => {
     const betSnap = await tx.get(betRef);
     if (!betSnap.exists) throw new HttpsError("not-found", "Bet not found.");
     const bet = betSnap.data();
@@ -390,7 +428,11 @@ exports.reportUnpaid = onCall(async request => {
 
     tx.update(betRef, { paidStatus: "unpaid", reportedUnpaid: true });
     tx.update(debtorRef, { dishonorable: true, dishonorableDebts: [...debts, betId] });
+    return { debtorId, description: bet.description };
   });
+
+  const winnerName = await usernameOf(uid);
+  await sendSMS(flagged.debtorId, `🏴 Bro-Bets: ${winnerName} flagged you as DISHONORABLE\nfor not paying '${flagged.description}'\nSettle your debt: ${process.env.APP_URL}`);
   return { ok: true };
 });
 
@@ -490,7 +532,9 @@ exports.giftMonies = onCall(async request => {
     const current = snap.data().monies ?? 0;
     // Deductions floor at zero; gifts (positive amounts) stay uncapped.
     const next = amt < 0 ? Math.max(0, current + amt) : current + amt;
-    tx.update(memberRef, { monies: next });
+    const update = { monies: next };
+    if (amt > 0) update.giftedMonies = FieldValue.increment(amt);
+    tx.update(memberRef, update);
   });
 
   if (amt > 0) await sendNotif(userId, `💰 Commissioner sent you ${amt} Monies!`, { type: "gift" });
