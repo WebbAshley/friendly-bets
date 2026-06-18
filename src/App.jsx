@@ -1399,7 +1399,7 @@ export default function App() {
     const isCreator = bet.creator === currentUser.id;
     const isWinner = bet.winner === currentUser.id;
     const creator = getUser(bet.creator);
-    const opp = bet.type === "1v1" ? getUser(isCreator ? bet.opponent : bet.creator) : null;
+    const opp = bet.type === "1v1" ? getUser(bet.opponent) : null;
     const winner = getUser(bet.winner);
     const isOpen = bet.anyAction && bet.status === "open";
     const accent = selectedLeague?.themeColor || BLUE;
@@ -1504,7 +1504,7 @@ export default function App() {
                 ) : (
                   <>
                     <Avatar name={opp?.username} avatarId={opp?.avatarId} size={34} />
-                    <span style={{ color: WHITE, fontSize: 11, fontWeight: 700, textAlign: "center" }}>{opp?.username || "?"}</span>
+                    <span style={{ color: opp ? WHITE : "#888", fontSize: 11, fontWeight: 700, textAlign: "center" }}>{opp?.username || (bet.opponent ? "..." : "?")}</span>
                     <span style={{ color: "#666", fontSize: 10 }}>Opponent</span>
                   </>
                 )}
