@@ -18,7 +18,7 @@ messaging.onBackgroundMessage(payload => {
   const { title, body, icon } = payload.notification ?? {};
   self.registration.showNotification(title ?? "Bro-Bets 👑", {
     body,
-    icon: icon ?? "/logo.svg",
-    badge: "/logo.svg",
+    icon: icon ?? "/logo.png",
+    badge: "/logo.png",
   });
 });

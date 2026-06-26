@@ -1,7 +1,7 @@
 // App.jsx — Bro-Bets (Firebase Version)
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import logo from "./assets/logo.svg";
+import logo from "./assets/logo.png";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import {
@@ -47,7 +47,7 @@ const sendNotif = async (toUserId, body) => {
   try {
     await addDoc(collection(db, "notifications"), {
       toUserId, title: "Bro-Bets 👑", body,
-      icon: "/logo.svg", createdAt: Date.now(), read: false,
+      icon: "/logo.png", createdAt: Date.now(), read: false,
     });
     console.log("[FCM] notification queued for", toUserId, "→", body);
   } catch (e) { console.error("[FCM] sendNotif failed:", e); }
